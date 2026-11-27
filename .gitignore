@@ -1,0 +1,17 @@
+# secrets and local data - never commit
+.env
+*.db
+*.db-shm
+*.db-wal
+angelone_credentials.json
+
+# python
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+backend/logs/
+
+# node
+node_modules/
+dist/
