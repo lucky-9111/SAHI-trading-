@@ -2,6 +2,7 @@ import { LineChart } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
+import { useOrdersChanged } from "../utils/liveSocket";
 import { api } from "../services/api";
 import { inr } from "../utils/format";
 
@@ -25,6 +26,7 @@ export default function OrderBookPage() {
     api<OrderRow[]>(`/api/accounts/${accountId}/orders`).then(setRows).catch((e) => setError(e.message));
   }, [accountId]);
   useEffect(() => { load(); const t = setInterval(load, 5000); return () => clearInterval(t); }, [load]);
+  useOrdersChanged(load);
 
   const cancel = async (id: number) => {
     try { await api(`/api/accounts/${accountId}/orders/${id}/cancel`, { method: "POST" }); load(); }

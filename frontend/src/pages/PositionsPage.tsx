@@ -2,6 +2,7 @@ import { LineChart } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
+import { useOrdersChanged } from "../utils/liveSocket";
 import { api } from "../services/api";
 import type { Dashboard } from "../types";
 import { inr, pnlClass } from "../utils/format";
@@ -89,6 +90,7 @@ export default function PositionsPage() {
     api<PositionRow[]>(`/api/accounts/${accountId}/positions`).then((r) => { setRows(r); setError(""); }).catch((e) => setError(e.message));
   }, [accountId]);
   useEffect(() => { load(); const t = setInterval(load, 5000); return () => clearInterval(t); }, [load]);
+  useOrdersChanged(load);   // a fill, stop, target or square-off: refresh now instead of waiting for the next poll
 
   const [dash, setDash] = useState<Dashboard | null>(null);
   useEffect(() => {

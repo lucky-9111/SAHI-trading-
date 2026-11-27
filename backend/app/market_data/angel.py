@@ -96,6 +96,11 @@ class AngelProvider:
         self._client, self._logged_in_at, self._last_error = client, time.time(), None
         log.info("Angel One session established")
 
+    def refresh(self) -> None:
+        """Forget the session so the next call logs in again (done once a day before the open). Never called on a 403: that is a rate limit."""
+        with self._lock:
+            self._client = None
+
     def session(self):
         """The logged-in SmartConnect client (logs in when needed). Used by the live websocket feed."""
         with self._lock:

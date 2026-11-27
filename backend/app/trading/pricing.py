@@ -29,14 +29,18 @@ SESSIONS = {"MCX": (dtime(9, 0), dtime(23, 30))}   # everything else trades 09:1
 DEFAULT_SESSION = (dtime(9, 15), dtime(15, 30))
 
 
-def session_hours(exchange: str = "NSE") -> tuple[dtime, dtime]:
-    return SESSIONS.get(exchange, DEFAULT_SESSION)
+def session_hours(exchange: str = "NSE", day=None) -> tuple[dtime, dtime]:
+    """(open, close) IST of that day (today by default); the DEFAULT hours when the exchange is closed all day."""
+    from app.live import calendar
+
+    return calendar.session(exchange, day or datetime.now(IST).date()) or DEFAULT_SESSION
 
 
 def is_market_open(now: datetime | None = None, exchange: str = "NSE") -> bool:
-    now = (now or datetime.now(IST)).astimezone(IST)
-    start, end = session_hours(exchange)
-    return now.weekday() < 5 and start <= now.time() <= end
+    """Open per the market calendar: weekends, holidays, special sessions and late opens included."""
+    from app.live import calendar
+
+    return calendar.is_open(exchange, now or datetime.now(IST))
 
 
 @dataclass(frozen=True)
@@ -88,18 +92,11 @@ def get_quotes(specs: list[tuple[str, str]], ttl: float = QUOTE_TTL) -> dict[tup
 
 
 def session_close(now: datetime | None = None, exchange: str = "NSE") -> datetime:
-    """When a DAY order placed at `now` expires: the close (15:30 IST) of the current session if the market has not
-    closed yet on a weekday, otherwise of the next weekday. (Exchange holidays are not known to the app.)"""
-    from datetime import timedelta
+    """When a DAY order placed at `now` expires: the end of the current session if it has not ended yet, otherwise of the next trading
+    day (weekends, holidays, special sessions and late opens come from the market calendar)."""
+    from app.live import calendar
 
-    now = (now or datetime.now(IST)).astimezone(IST)
-    day = now.date()
-    close = session_hours(exchange)[1]
-    if now.weekday() >= 5 or now.time() > close:
-        day += timedelta(days=1)
-        while day.weekday() >= 5:
-            day += timedelta(days=1)
-    return datetime.combine(day, close, tzinfo=IST)
+    return calendar.next_close(exchange, now or datetime.now(IST)).astimezone(IST)
 
 
 def get_price(instrument: Instrument, max_age: float = CACHE_TTL) -> PriceQuote:
@@ -107,6 +104,15 @@ def get_price(instrument: Instrument, max_age: float = CACHE_TTL) -> PriceQuote:
     hit = _cache.get(key)
     if hit and time.time() - hit[0] <= max_age:
         return hit[1]
+    from app.live import runtime
+
+    tick = runtime.fresh_tick(instrument.exchange, instrument.token, max_age=3.0)   # a pushed price a few seconds old beats a REST call
+    if tick is not None:
+        quote = PriceQuote(Decimal(str(tick.ltp)), datetime.now(IST), is_market_open(exchange=instrument.exchange))
+        _cache[key] = (time.time(), quote)
+        return quote
+    if runtime.untrusted(instrument.exchange, instrument.token):
+        raise PriceUnavailable("Price feed is stale (no ticks while the market is open); refusing to fill on an old price")
     try:
         ltp = angel.provider.get_ltp(instrument.exchange, instrument.trading_symbol, instrument.token)
     except ProviderError as e:

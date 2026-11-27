@@ -15,7 +15,9 @@ from decimal import Decimal
 from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
 
+from app.core.config import get_settings
 from app.models import Order, Position, Strategy, Trade, TradingAccount
+from app.models.live import TradeLog
 from app.models.core import utcnow
 from app.models.market import Instrument
 from app.services import accounts as acct
@@ -28,6 +30,14 @@ lock = threading.RLock()
 
 class TradingError(ValueError):
     pass
+
+
+def slip(side: str, price: Decimal) -> Decimal:
+    """Adverse slippage (setting paper_slippage_pct): a BUY fills a little higher, a SELL a little lower. 0 by default."""
+    pct = Decimal(get_settings().paper_slippage_pct or "0")
+    if pct <= 0:
+        return price
+    return q2(price * (1 + pct / 100)) if side == "BUY" else q2(price * (1 - pct / 100))
 
 
 def validate_levels(side: str, entry: Decimal, sl: Decimal | None, target: Decimal | None) -> list[str]:
@@ -160,6 +170,10 @@ def fill_order(db: Session, order: Order, price: Decimal) -> Order:
         if order.target is not None:
             pos.target = order.target
         order.status, order.exec_price, order.executed_at = "EXECUTED", price, utcnow()
+        db.flush()
+        db.add(TradeLog(account_id=order.account_id, order_id=order.id, position_id=pos.id, instrument_id=order.instrument_id, event="FILL",
+                        side=order.side, quantity=order.quantity, price=price, charges=charges,
+                        reason="SIGNAL" if (order.idempotency_key or "").startswith("sig-") else "ENTRY"))
         db.commit()
         return order
 
@@ -214,7 +228,7 @@ def place_order(db: Session, account: TradingAccount, inst: Instrument, *, side:
         db.commit()
 
         if order_type == "MARKET":
-            return fill_order(db, order, quote.price)
+            return fill_order(db, order, slip(side, quote.price))
         if order_type == "LIMIT" and quote and quote.market_open:  # marketable limit fills at the better price
             if (side == "BUY" and quote.price <= limit_price) or (side == "SELL" and quote.price >= limit_price):
                 return fill_order(db, order, quote.price)
@@ -275,6 +289,8 @@ def exit_position(db: Session, pos: Position, quantity: int | None, price: Decim
                       gross_pnl=gross, charges=total_charges, net_pnl=gross - total_charges, exit_reason=reason,
                       strategy_id=pos.strategy_id, entry_time=pos.opened_at, exit_time=utcnow())
         db.add(trade)
+        db.add(TradeLog(account_id=pos.account_id, order_id=None, position_id=pos.id, instrument_id=pos.instrument_id, event="EXIT",
+                        side=exit_leg, quantity=qty, price=price, charges=total_charges, reason=reason))
         pos.quantity -= qty
         pos.invested_amount -= released_cash
         pos.entry_value -= released
@@ -313,7 +329,7 @@ def process_price(db: Session, instrument_id: int, price: Decimal) -> list[str]:
             else:  # trigger (stop) order: buy once price rises to it, sell once it falls to it; fills at observed price
                 hit = (o.side == "BUY" and price >= o.limit_price) or (o.side == "SELL" and price <= o.limit_price)
             if hit:
-                res = fill_order(db, o, price)
+                res = fill_order(db, o, slip(o.side, price) if o.order_type == "TRIGGER" else price)
                 events.append(f"order {o.id} {res.status}")
         for p in db.scalars(select(Position).where(Position.instrument_id == instrument_id,
                                                    Position.status == "OPEN")).all():
@@ -325,7 +341,7 @@ def process_price(db: Session, instrument_id: int, price: Decimal) -> list[str]:
                 reason = "TARGET"
             if reason:
                 try:
-                    exit_position(db, p, None, price, reason)
+                    exit_position(db, p, None, slip("SELL" if long_ else "BUY", price) if reason == "STOP_LOSS" else price, reason)
                     events.append(f"position {p.id} closed by {reason} @ {price}")
                 except TradingError as e:
                     log.warning("Auto exit skipped for position %s: %s", p.id, e)

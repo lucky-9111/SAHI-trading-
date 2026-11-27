@@ -12,6 +12,7 @@ from app.models import Order, Position, Strategy, Trade, TradingAccount, User
 from app.models.market import Instrument
 from app.services import accounts as acct
 from app.trading import engine, pricing
+from app.live import runtime
 from app.trading.charges import estimate_charges, q2, required_cash
 
 router = APIRouter(prefix="/api/accounts/{account_id}", tags=["trading"])
@@ -223,6 +224,7 @@ def create_order(body: OrderIn, acc: TradingAccount = Depends(owned_account), db
                   product=body.product, quantity=body.quantity, limit_price=body.limit_price,
                   stop_loss=body.stop_loss, target=body.target, strategy_id=body.strategy_id,
                   idempotency_key=body.idempotency_key, validity=body.validity)
+    runtime.notify_user(acc.user_id, {"type": "orders_changed", "events": [f"order {order.id} {order.status}"]})
     return order_out(db, order)
 
 
@@ -237,7 +239,9 @@ def cancel(order_id: int, acc: TradingAccount = Depends(owned_account), db: Sess
     o = db.get(Order, order_id)
     if not o or o.account_id != acc.id:
         raise HTTPException(404, "Order not found")
-    return order_out(db, _wrap(engine.cancel_order, db, o))
+    out = order_out(db, _wrap(engine.cancel_order, db, o))
+    runtime.notify_user(acc.user_id, {"type": "orders_changed", "events": [f"order {order_id} CANCELLED"]})
+    return out
 
 
 # ---------- positions ----------
@@ -261,7 +265,9 @@ def exit_pos(position_id: int, body: ExitIn, acc: TradingAccount = Depends(owned
     p = _own_position(db, acc, position_id)
     inst = db.get(Instrument, p.instrument_id)
     quote = _wrap(pricing.get_price, inst)
-    return trade_out(db, _wrap(engine.exit_position, db, p, body.quantity, quote.price, "MANUAL"))
+    out = trade_out(db, _wrap(engine.exit_position, db, p, body.quantity, quote.price, "MANUAL"))
+    runtime.notify_user(acc.user_id, {"type": "orders_changed", "events": [f"position {position_id} exited"]})
+    return out
 
 
 @router.patch("/positions/{position_id}")

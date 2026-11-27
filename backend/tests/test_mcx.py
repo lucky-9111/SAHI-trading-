@@ -53,10 +53,14 @@ def test_commodities_and_fno_endpoints(client, monkeypatch):
 
 
 def test_live_ticks_endpoint(client):
-    from app.market_data.live_feed import feed
+    import datetime as dt
+    from app.live import runtime
+    from app.live.tick import Tick
     h = register(client)
-    feed._on_tick({"exchange_type": 5, "token": '"575691"', "last_traded_price": 12511400, "exchange_timestamp": 1790000000000})
-    feed._on_tick({"exchange_type": 1, "token": "2885", "last_traded_price": 139450, "exchange_timestamp": 1790000000000})
+    ts = dt.datetime.now(dt.timezone.utc)
+    runtime.store.update(Tick("575691", "GOLD", "MCX", 125114.0, 0, ts, 0.0))
+    runtime.store.update(Tick("2885", "RELIANCE", "NSE", 1394.5, 0, ts, 0.0))
     r = client.get("/api/market/ticks?s=MCX:575691,NSE:2885,NSE:1", headers=h).json()
     assert r["ticks"]["MCX:575691"]["ltp"] == 125114.0 and r["ticks"]["NSE:2885"]["ltp"] == 1394.5
-    assert "NSE:1" not in r["ticks"] and r["feed"]["connected"] is False
+    assert "NSE:1" not in r["ticks"] and r["feed"]["state"] == "closed"
+    assert client.get("/health").json()["mode"] == "off"

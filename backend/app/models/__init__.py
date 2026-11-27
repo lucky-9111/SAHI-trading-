@@ -10,3 +10,4 @@ from app.models.core import (  # noqa: F401
     TradingAccount,
     User,
 )
+from app.models.live import LiveCandle, MarketCalendarRow, TradeLog  # noqa: F401

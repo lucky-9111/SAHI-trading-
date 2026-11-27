@@ -164,16 +164,25 @@ def fno(_: User = Depends(current_user), db: Session = Depends(get_db)):
 @router.get("/ticks")
 def ticks(s: str = Query(..., description="comma separated EXCHANGE:TOKEN, e.g. NSE:2885,MCX:575691"),
           _: User = Depends(current_user)):
-    """Latest pushed price of each token, read from memory (no broker call). Following a token starts its live subscription."""
-    from app.market_data.live_feed import feed
+    """Latest pushed price of each token, read from memory (no broker call). The browser prefers the /ws/ticks websocket; this is its fallback.
+    Asking for a token keeps it subscribed for a couple of minutes."""
+    from app.live import runtime
 
     specs = []
     for part in s.split(",")[:60]:
         ex, _, tok = part.partition(":")
         if ex and tok.isalnum():
             specs.append((ex.upper(), tok))
-    feed.ensure(specs)
-    return {"ticks": feed.get(specs), "feed": feed.status(), "as_of": datetime.now(pricing.IST).isoformat()}
+    runtime.touch(specs)
+    out = {}
+    for ex, tok in specs:
+        t = runtime.store.get(ex, tok)
+        if t is not None:
+            out[f"{ex}:{tok}"] = {"ltp": t.ltp, "age": round(runtime.store.age(ex, tok) or 0.0, 1), "ts": int(t.exchange_ts.timestamp() * 1000),
+                                  "state": runtime.store.state(ex, tok)}
+    pl = runtime.pipeline
+    return {"ticks": out, "feed": pl.feed_status() if pl else {"state": "closed", "last_tick_age_s": None},
+            "as_of": datetime.now(pricing.IST).isoformat()}
 
 
 @router.get("/lists/{name}")

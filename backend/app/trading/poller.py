@@ -8,6 +8,7 @@ from sqlalchemy import select
 from app.database.session import SessionLocal
 from app.models import Order, Position
 from app.models.market import Instrument
+from app.live import runtime
 from app.trading import engine, pricing
 
 log = logging.getLogger(__name__)
@@ -27,6 +28,8 @@ def tick() -> int:
             inst = db.get(Instrument, iid)
             if not pricing.is_market_open(exchange=inst.exchange):
                 continue
+            if runtime.fresh_tick(inst.exchange, inst.token, max_age=10.0) is not None:
+                continue  # the live pipeline is handling this instrument from pushed ticks
             try:
                 quote = pricing.get_price(inst, max_age=0)
             except pricing.PriceUnavailable:

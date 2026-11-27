@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { api } from "../services/api";
-import { useLiveTick } from "../utils/useLiveTick";
+import { useLiveTick } from "../utils/liveSocket";
 import CandleChart, { type Candle, type PriceLine } from "./CandleChart";
 
 const TIMEFRAMES = ["1m", "5m", "15m", "30m", "1h", "1d", "1w", "1M"] as const;
@@ -37,8 +37,8 @@ export default function ChartView({ symbol, exchange, height = 520, title, lines
 
   const activeMas = useMemo(() => MAS.filter((m) => maOn[m.period]), [maOn]);
   const last = data?.candles.at(-1);
-  const { tick, fresh, connected } = useLiveTick(data?.exchange, data?.token);
-  const liveText = fresh ? "LIVE" : connected === false ? "Feed connecting…" : tick ? "Last tick (market closed?)" : "Waiting for ticks…";
+  const { tick, fresh, feed } = useLiveTick(data?.exchange, data?.token);
+  const liveText = fresh ? "LIVE" : feed === "reconnecting" || feed === "offline" ? "Reconnecting…" : feed === "stale" ? "Feed stale" : feed === "closed" ? "Market closed" : tick ? "Quiet (no recent trade)" : "Waiting for ticks…";
   return (
     <div className="space-y-2">
       <div className="flex flex-wrap items-center gap-3">

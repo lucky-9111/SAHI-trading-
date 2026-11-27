@@ -6,6 +6,7 @@ import StockSearch from "../components/StockSearch";
 import { useAuth } from "../contexts/AuthContext";
 import { api } from "../services/api";
 import { inr } from "../utils/format";
+import { useFeedState } from "../utils/liveSocket";
 import { NAV } from "./nav";
 
 interface Feed { state: string; reason: string }
@@ -23,7 +24,10 @@ export default function AppLayout() {
     return () => clearInterval(t);
   }, []);
 
-  const dot = feed?.state === "DELAYED" ? "bg-amber-400" : feed?.state === "LIVE" ? "bg-up" : "bg-slate-300";
+  const ws = useFeedState();
+  // the websocket's own report wins; the REST status only speaks while the socket is down
+  const label = ws === "connected" ? "LIVE" : ws === "stale" ? "STALE" : ws === "reconnecting" ? "RECONNECTING" : ws === "closed" ? "MARKET CLOSED" : ws === "replay" ? "REPLAY" : (feed?.state ?? "DISCONNECTED");
+  const dot = label === "LIVE" ? "bg-up" : label === "STALE" || label === "RECONNECTING" || label === "DELAYED" ? "bg-amber-400" : label === "REPLAY" ? "bg-blue-500" : "bg-slate-300";
   return (
     <div className="h-full flex bg-bg">
       <aside className={`${collapsed ? "w-[68px]" : "w-60"} shrink-0 border-r border-line bg-white flex flex-col transition-all`}>
@@ -61,7 +65,7 @@ export default function AppLayout() {
         <header className="h-16 shrink-0 border-b border-line bg-white px-5 flex items-center gap-3">
           <StockSearch />
           <div className="hidden lg:flex items-center gap-2 text-xs text-muted" title={feed?.reason ?? ""}>
-            <span className={`h-2 w-2 rounded-full ${dot}`} /> Data: {feed?.state ?? "DISCONNECTED"}
+            <span className={`h-2 w-2 rounded-full ${dot}`} /> Data: {label}
           </div>
           <div className="flex-1" />
           {accounts.length > 1 && (
