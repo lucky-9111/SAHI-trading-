@@ -62,7 +62,7 @@ export default function AreaChart({ symbol, exchange, height = 380, prevClose }:
     series.current.update({ time: t as UTCTimestamp, value: tick.ltp });
   }, [tick, fresh]);
 
-  if (error) return <div className="py-16 text-center text-muted text-[15px]">Chart unavailable: {error}</div>;
+  if (error) return <div className="py-16 text-center text-muted text-[14px] lg:text-[15px]">Chart unavailable: {error}</div>;
   if (!data) return <div className="skeleton w-full" style={{ height }} />;
   if (!points.length) return <div className="py-16 text-center text-muted">No intraday data yet.</div>;
   return <div ref={el} className="w-full" style={{ height }} />;

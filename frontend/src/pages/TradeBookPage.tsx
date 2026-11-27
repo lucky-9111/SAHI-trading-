@@ -38,15 +38,15 @@ export default function TradeBookPage() {
     <div className="lg:max-w-[820px]">
       <div className="lg:hidden"><BackBar /></div>
       <PageTitle>Trade history</PageTitle>
-      {error && <div role="alert" className="mx-4 lg:mx-0 text-down text-[14px]">{error}</div>}
+      {error && <div role="alert" className="mx-4 lg:mx-0 text-down text-[13px] lg:text-[14px]">{error}</div>}
       {rows === null ? <div className="px-4 lg:px-0"><Skeleton rows={5} /></div> : rows.length === 0 ? (
         <EmptyState art={<ChartArt />} title="No completed trades yet" text="Closed trades and their net P&L appear here." />
       ) : (
         <>
           <div className="mx-4 lg:mx-0 card grid grid-cols-3 text-center px-3 py-4">
-            <div><div className="text-[13px] text-muted">Net P&amp;L</div><div className={`text-[18px] font-medium ${pnlClass(sum("net_pnl"))}`}>{inr(sum("net_pnl"), true)}</div></div>
-            <div><div className="text-[13px] text-muted">Charges</div><div className="text-[18px] font-medium">{inr(sum("charges"))}</div></div>
-            <div><div className="text-[13px] text-muted">Win rate</div><div className="text-[18px] font-medium">{shown.length ? Math.round((wins / shown.length) * 100) : 0}%</div></div>
+            <div><div className="text-[12px] lg:text-[13px] text-muted">Net P&amp;L</div><div className={`text-[16px] lg:text-[18px] font-medium ${pnlClass(sum("net_pnl"))}`}>{inr(sum("net_pnl"), true)}</div></div>
+            <div><div className="text-[12px] lg:text-[13px] text-muted">Charges</div><div className="text-[16px] lg:text-[18px] font-medium">{inr(sum("charges"))}</div></div>
+            <div><div className="text-[12px] lg:text-[13px] text-muted">Win rate</div><div className="text-[16px] lg:text-[18px] font-medium">{shown.length ? Math.round((wins / shown.length) * 100) : 0}%</div></div>
           </div>
           <div className="px-4 lg:px-0 mt-5"><Segmented value={result} onChange={setResult} items={[["ALL", "All"], ["PROFIT", "Profit"], ["LOSS", "Loss"]]} /></div>
           <div className="px-4 lg:px-0 mt-2">
@@ -54,11 +54,11 @@ export default function TradeBookPage() {
               <Link key={t.id} to={`/trade?symbol=${t.chart_symbol}&exchange=${t.chart_exchange}`} className="row items-start active:bg-soft">
                 <div className="min-w-0">
                   <div className="flex items-center gap-2">
-                    <span className={`rounded-md px-2 py-0.5 text-[12px] font-medium ${t.side === "BUY" ? "bg-buybg text-buy" : "bg-sellbg text-sell"}`}>{t.side === "BUY" ? "LONG" : "SHORT"}</span>
+                    <span className={`rounded-md px-2 py-0.5 text-[11.5px] lg:text-[12px] font-medium ${t.side === "BUY" ? "bg-buybg text-buy" : "bg-sellbg text-sell"}`}>{t.side === "BUY" ? "LONG" : "SHORT"}</span>
                     <span className="row-name">{displayName(t.symbol)}</span>
                   </div>
                   <div className="row-sub">{t.quantity} qty · {price(t.entry_price)} → {price(t.exit_price)} · {t.exit_reason.replace("_", " ").toLowerCase()} · {duration(t.entry_time, t.exit_time)}</div>
-                  <div className="text-[13px] text-faint mt-0.5">{t.strategy} · {istTime(t.exit_time, { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}</div>
+                  <div className="text-[12px] lg:text-[13px] text-faint mt-0.5">{t.strategy} · {istTime(t.exit_time, { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}</div>
                 </div>
                 <div className="text-right shrink-0">
                   <div className={`row-price ${pnlClass(t.net_pnl)}`}>{inr(t.net_pnl, true)}</div>

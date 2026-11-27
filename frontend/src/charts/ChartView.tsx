@@ -42,28 +42,28 @@ export default function ChartView({ symbol, exchange, height = 520, title, lines
   return (
     <div className="space-y-3">
       <div className="flex items-center gap-3 px-4 lg:px-0">
-        {title && <h2 className="text-[18px] font-medium">{title} <span className="text-[14px] text-muted">{exchange}</span></h2>}
-        {last && <span className="text-[15px]">{fresh ? "LTP" : "Last close"} <b className="font-medium">{(fresh && tick ? tick.ltp : last.close).toFixed(2)}</b></span>}
-        {data && <span className={`inline-flex items-center gap-1.5 text-[13px] ${fresh ? "text-up" : "text-muted"}`} title="Prices pushed by Angel One over a websocket">
+        {title && <h2 className="text-[16px] lg:text-[18px] font-medium">{title} <span className="text-[13px] lg:text-[14px] text-muted">{exchange}</span></h2>}
+        {last && <span className="text-[14px] lg:text-[15px]">{fresh ? "LTP" : "Last close"} <b className="font-medium">{(fresh && tick ? tick.ltp : last.close).toFixed(2)}</b></span>}
+        {data && <span className={`inline-flex items-center gap-1.5 text-[12px] lg:text-[13px] ${fresh ? "text-up" : "text-muted"}`} title="Prices pushed by Angel One over a websocket">
           <span className={`h-2 w-2 rounded-full ${fresh ? "bg-up animate-pulse" : "bg-faint"}`} />{liveText}</span>}
       </div>
       <div className="flex items-center gap-2 overflow-x-auto no-scrollbar px-4 lg:px-0">
         <div className="seg shrink-0">
           {TIMEFRAMES.map((t) => (
             <button key={t} onClick={() => setTf(t)}
-                    className={`relative z-10 rounded-full px-3.5 py-1.5 text-[14px] transition-colors ${tf === t ? "bg-white text-ink font-medium shadow-[0_1px_2px_rgba(0,0,0,.08)]" : "text-[#555]"}`}>
+                    className={`relative z-10 rounded-full px-3 py-[5px] lg:px-3.5 lg:py-1.5 text-[13px] lg:text-[14px] transition-colors ${tf === t ? "bg-white text-ink font-medium shadow-[0_1px_2px_rgba(0,0,0,.08)]" : "text-[#555]"}`}>
               {LABEL[t] ?? t}
             </button>
           ))}
         </div>
         {MAS.map((m) => (
           <button key={m.period} onClick={() => setMaOn({ ...maOn, [m.period]: !maOn[m.period] })}
-                  className={`shrink-0 rounded-full border px-3.5 py-1.5 text-[14px] transition-colors ${maOn[m.period] ? "border-ink" : "border-line text-muted"}`}>
+                  className={`shrink-0 rounded-full border px-3 py-[5px] lg:px-3.5 lg:py-1.5 text-[13px] lg:text-[14px] transition-colors ${maOn[m.period] ? "border-ink" : "border-line text-muted"}`}>
             <span style={{ color: maOn[m.period] ? m.color : undefined }}>●</span> MA{m.period}
           </button>
         ))}
-        <button onClick={() => setShowBB(!showBB)} className={`shrink-0 rounded-full border px-3.5 py-1.5 text-[14px] ${showBB ? "border-ink" : "border-line text-muted"}`}><span style={{ color: showBB ? "#06b6d4" : undefined }}>●</span> Bollinger</button>
-        <button onClick={() => setShowRSI(!showRSI)} className={`shrink-0 rounded-full border px-3.5 py-1.5 text-[14px] ${showRSI ? "border-ink" : "border-line text-muted"}`}><span style={{ color: showRSI ? "#8b5cf6" : undefined }}>●</span> RSI</button>
+        <button onClick={() => setShowBB(!showBB)} className={`shrink-0 rounded-full border px-3 py-[5px] lg:px-3.5 lg:py-1.5 text-[13px] lg:text-[14px] ${showBB ? "border-ink" : "border-line text-muted"}`}><span style={{ color: showBB ? "#06b6d4" : undefined }}>●</span> Bollinger</button>
+        <button onClick={() => setShowRSI(!showRSI)} className={`shrink-0 rounded-full border px-3 py-[5px] lg:px-3.5 lg:py-1.5 text-[13px] lg:text-[14px] ${showRSI ? "border-ink" : "border-line text-muted"}`}><span style={{ color: showRSI ? "#8b5cf6" : undefined }}>●</span> RSI</button>
       </div>
       <div className="overflow-hidden lg:rounded-2xl">
         {loading && <div className="skeleton mx-4 lg:mx-0" style={{ height }} />}
@@ -75,7 +75,7 @@ export default function ChartView({ symbol, exchange, height = 520, title, lines
         )}
         {data && data.candles.length > 0 && <CandleChart candles={data.candles} ma={activeMas} height={height} lines={lines} showBB={showBB} showRSI={showRSI} live={fresh && tick ? tick.ltp : null} tfSeconds={TF_SECONDS[tf]} />}
       </div>
-      {data && <div className="text-[12px] text-faint px-4 lg:px-0">Source: {data.source} · {data.status.state} · Times in IST · Historical candles + live ticks</div>}
+      {data && <div className="text-[11.5px] lg:text-[12px] text-faint px-4 lg:px-0">Source: {data.source} · {data.status.state} · Times in IST · Historical candles + live ticks</div>}
     </div>
   );
 }

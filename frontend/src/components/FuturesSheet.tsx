@@ -31,7 +31,7 @@ export default function FuturesSheet({ open, onClose, underlying, futures, spot,
   return (
     <Sheet open={open} onClose={onClose} label="Futures">
       <div className="overflow-y-auto px-5 lg:px-6 pb-[calc(20px+env(safe-area-inset-bottom))]">
-        <h2 className="font-serif text-[30px] text-center pt-3 pb-4">Futures</h2>
+        <h2 className="font-serif text-[25px] lg:text-[30px] text-center pt-3 pb-4">Futures</h2>
         {rows.length === 0 && <div className="py-10 text-center text-muted">No futures contracts for {underlying}.</div>}
         {rows.map((f) => {
           const ltp = f.ltp != null ? Number(f.ltp) : null;
@@ -41,24 +41,24 @@ export default function FuturesSheet({ open, onClose, underlying, futures, spot,
                     className="w-full text-left py-5 border-b border-line last:border-0 active:bg-soft press">
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
-                  <div className="text-[18px] truncate">{futureName(underlying, f.expiry)}</div>
-                  <div className="text-[15px] text-muted mt-1">{f.exchange === "MCX" ? "MCX" : "NSE"}</div>
+                  <div className="text-[16px] lg:text-[18px] truncate">{futureName(underlying, f.expiry)}</div>
+                  <div className="text-[14px] lg:text-[15px] text-muted mt-1">{f.exchange === "MCX" ? "MCX" : "NSE"}</div>
                 </div>
                 <div className="text-right shrink-0">
-                  <div className="text-[18px] font-medium tabular-nums">{ltp != null ? price(ltp) : "—"}</div>
+                  <div className="text-[16px] lg:text-[18px] font-medium tabular-nums">{ltp != null ? price(ltp) : "—"}</div>
                   {f.change != null && f.pct != null && (
-                    <div className={`text-[15px] mt-1 tabular-nums ${pnlClass(f.change)}`}>{signed(Number(f.change))} ({Math.abs(Number(f.pct)).toFixed(2)}%)</div>
+                    <div className={`text-[14px] lg:text-[15px] mt-1 tabular-nums ${pnlClass(f.change)}`}>{signed(Number(f.change))} ({Math.abs(Number(f.pct)).toFixed(2)}%)</div>
                   )}
                 </div>
               </div>
               <div className="flex items-start justify-between gap-3 mt-3">
                 <div>
-                  <div className="text-[15px] text-muted">Open Interest</div>
-                  <div className="text-[16px] mt-1 tabular-nums">{f.oi ? f.oi.toLocaleString("en-IN") : "—"}</div>
+                  <div className="text-[14px] lg:text-[15px] text-muted">Open Interest</div>
+                  <div className="text-[15px] lg:text-[16px] mt-1 tabular-nums">{f.oi ? f.oi.toLocaleString("en-IN") : "—"}</div>
                 </div>
                 <div className="text-right">
-                  <div className="text-[15px] text-muted">Premium to spot</div>
-                  <div className={`text-[16px] mt-1 tabular-nums ${prem != null ? pnlClass(prem) : ""}`}>
+                  <div className="text-[14px] lg:text-[15px] text-muted">Premium to spot</div>
+                  <div className={`text-[15px] lg:text-[16px] mt-1 tabular-nums ${prem != null ? pnlClass(prem) : ""}`}>
                     {prem != null && spot ? `${signed(prem)} (${signed((prem / spot) * 100)}%)` : "—"}
                   </div>
                 </div>
@@ -66,7 +66,7 @@ export default function FuturesSheet({ open, onClose, underlying, futures, spot,
             </button>
           );
         })}
-        <div className="pt-3 text-[13px] text-faint text-center">Lot size {futures[0]?.lot_size ?? "—"} · tap a contract to trade it</div>
+        <div className="pt-3 text-[12px] lg:text-[13px] text-faint text-center">Lot size {futures[0]?.lot_size ?? "—"} · tap a contract to trade it</div>
       </div>
     </Sheet>
   );

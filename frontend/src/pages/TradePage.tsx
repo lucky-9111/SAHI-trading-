@@ -37,20 +37,20 @@ function OptionChain({ chain, selected, onPick }: { chain: Chain; selected: stri
       {l ? (
         <button onClick={() => onPick(l, strike, kind)}
                 className={`rounded-xl px-2.5 py-2 w-full press ${selected === l.symbol ? "bg-ink text-white" : "active:bg-soft"}`}>
-          <div className="text-[16px] font-medium">{price(l.ltp)}</div>
-          {l.pct && <div className={`text-[12px] ${selected === l.symbol ? "text-white/80" : pnlClass(l.pct)}`}>{Number(l.pct) > 0 ? "+" : ""}{Number(l.pct).toFixed(1)}%</div>}
+          <div className="text-[15px] lg:text-[16px] font-medium">{price(l.ltp)}</div>
+          {l.pct && <div className={`text-[11.5px] lg:text-[12px] ${selected === l.symbol ? "text-white/80" : pnlClass(l.pct)}`}>{Number(l.pct) > 0 ? "+" : ""}{Number(l.pct).toFixed(1)}%</div>}
         </button>
       ) : <span className="text-faint">—</span>}
     </td>
   );
   return (
     <table className="w-full">
-      <thead><tr className="text-[13px] text-muted"><th className="py-2 font-normal">Call</th><th className="py-2 font-normal">Strike</th><th className="py-2 font-normal">Put</th></tr></thead>
+      <thead><tr className="text-[12px] lg:text-[13px] text-muted"><th className="py-2 font-normal">Call</th><th className="py-2 font-normal">Strike</th><th className="py-2 font-normal">Put</th></tr></thead>
       <tbody>
         {chain.rows.map((r) => (
           <tr key={r.strike} className={`border-t border-line ${r.strike === chain.atm_strike ? "bg-soft" : ""}`}>
             {cell(r.ce, r.strike, "CE")}
-            <td className="py-1.5 text-center text-[16px] font-medium">{price(r.strike)}{r.strike === chain.atm_strike && <div className="text-[11px] text-muted font-normal">ATM</div>}</td>
+            <td className="py-1.5 text-center text-[15px] lg:text-[16px] font-medium">{price(r.strike)}{r.strike === chain.atm_strike && <div className="text-[10.5px] lg:text-[11px] text-muted font-normal">ATM</div>}</td>
             {cell(r.pe, r.strike, "PE")}
           </tr>
         ))}
@@ -194,26 +194,26 @@ export default function TradePage() {
 
   const title = (
     <div className="min-w-0">
-      <button onClick={() => openSearch()} className="text-[19px] lg:text-[26px] underline underline-offset-4 decoration-1 truncate max-w-full text-left">
+      <button onClick={() => openSearch()} className="text-[15.5px] lg:text-[26px] leading-tight lg:leading-normal underline underline-offset-4 decoration-1 truncate max-w-full text-left">
         {futureMode && fno ? futureName(fno.underlying, fut!.expiry) : displayName(symbol)}
       </button>
-      <div className="flex items-baseline gap-2 text-[17px] lg:text-[19px]">
+      <div className="flex items-baseline gap-1.5 lg:gap-2 text-[17px] lg:text-[19px] whitespace-nowrap">
         <span className="font-medium"><Flash value={headPrice}>{headPrice != null ? price(headPrice) : "—"}</Flash></span>
         {futureMode
-          ? futChange != null && <span className={pnlClass(futChange)}>{changeText(futChange.toFixed(2), futPct != null ? futPct.toFixed(2) : null)}</span>
-          : !isIndex && liveQuote && <span className={pnlClass(liveQuote.change ?? 0)}>{changeText(liveQuote.change, liveQuote.pct)}</span>}
-        <span className="text-muted text-[15px]">{isCommodity ? "MCX · near month" : isIndex ? "Index" : exchange}</span>
+          ? futChange != null && <span className={`text-[15px] lg:text-[19px] ${pnlClass(futChange)}`}>{changeText(futChange.toFixed(2), futPct != null ? futPct.toFixed(2) : null)}</span>
+          : !isIndex && liveQuote && <span className={`text-[15px] lg:text-[19px] ${pnlClass(liveQuote.change ?? 0)}`}>{changeText(liveQuote.change, liveQuote.pct)}</span>}
+        <span className="text-muted text-[14px] lg:text-[15px] truncate">{isCommodity ? "MCX · near month" : isIndex ? "Index" : exchange}</span>
       </div>
     </div>
   );
 
   return (
-    <div className="pb-[calc(96px+env(safe-area-inset-bottom))] lg:pb-0">
+    <div className="pb-[calc(84px+env(safe-area-inset-bottom))] lg:pb-0">
       {/* phone header */}
       <div className="lg:hidden">
         <BackBar title={title} right={<>
-          <button aria-label="Search" className="h-10 w-10 grid place-items-center" onClick={() => openSearch()}><Search size={24} strokeWidth={1.7} /></button>
-          {!isIndex && <button aria-label="Add to watchlist" className="h-10 w-10 grid place-items-center" onClick={addToWatchlist}>{saved ? <BookmarkCheck size={24} /> : <Bookmark size={24} strokeWidth={1.7} />}</button>}
+          <button aria-label="Search" className="h-10 w-10 grid place-items-center" onClick={() => openSearch()}><Search size={22} strokeWidth={1.7} /></button>
+          {!isIndex && <button aria-label="Add to watchlist" className="h-10 w-10 grid place-items-center" onClick={addToWatchlist}>{saved ? <BookmarkCheck size={22} /> : <Bookmark size={22} strokeWidth={1.7} />}</button>}
         </>} />
       </div>
       {/* desktop header */}
@@ -221,10 +221,10 @@ export default function TradePage() {
         {title}
         {!isIndex && <button className="btn-ghost" onClick={addToWatchlist}>{saved ? <BookmarkCheck size={17} /> : <Bookmark size={17} />} Watchlist</button>}
       </div>
-      {note && <div role="status" className="mx-4 lg:mx-0 mb-2 rounded-2xl bg-buybg/70 px-4 py-2.5 text-[15px] text-buy animate-fade">{note}</div>}
+      {note && <div role="status" className="mx-4 lg:mx-0 mb-2 rounded-2xl bg-buybg/70 px-4 py-2.5 text-[14px] lg:text-[15px] text-buy animate-fade">{note}</div>}
 
       {tabs.length > 1 && isIndex && <Tabs value={seg} onChange={(s) => { setSeg(s); setLeg(null); }} items={tabs} />}
-      {fnoError && <div role="alert" className="mx-4 lg:mx-0 mt-2 text-[14px] text-down">{fnoError}</div>}
+      {fnoError && <div role="alert" className="mx-4 lg:mx-0 mt-2 text-[13px] lg:text-[14px] text-down">{fnoError}</div>}
 
       <div className="lg:grid lg:grid-cols-[1fr_420px] lg:gap-6 lg:items-start lg:mt-5">
         <div className="min-w-0 space-y-5">
@@ -233,9 +233,9 @@ export default function TradePage() {
           {/* future / option chain of a stock: the stock itself, tap to go back to it */}
           {stockSubView && (
             <button onClick={() => nav(stockUrl)} className="w-full flex items-center gap-3 px-4 lg:px-0 py-4 border-y border-line text-left active:bg-soft">
-              <span className="text-[18px] font-medium flex-1 truncate">{symbol}</span>
-              <span className="text-[17px] tabular-nums">{liveQuote?.ltp != null ? price(liveQuote.ltp) : "—"}</span>
-              {liveQuote && <span className={`text-[16px] tabular-nums ${pnlClass(liveQuote.change ?? 0)}`}>{changeText(liveQuote.change, liveQuote.pct)}</span>}
+              <span className="text-[16px] lg:text-[18px] font-medium flex-1 truncate">{symbol}</span>
+              <span className="text-[16px] lg:text-[17px] tabular-nums">{liveQuote?.ltp != null ? price(liveQuote.ltp) : "—"}</span>
+              {liveQuote && <span className={`text-[15px] lg:text-[16px] tabular-nums ${pnlClass(liveQuote.change ?? 0)}`}>{changeText(liveQuote.change, liveQuote.pct)}</span>}
               <ChevronRight size={20} className="text-muted shrink-0" />
             </button>
           )}
@@ -244,15 +244,15 @@ export default function TradePage() {
           {!isIndex && fno && (fno.futures.length > 0 || fno.option_expiries.length > 0) && (
             <div className="flex gap-3 overflow-x-auto no-scrollbar px-4 lg:px-0">
               {fno.futures.length > 0 && (
-                <button onClick={() => setFuturesOpen(true)} className="shrink-0 w-[96px] rounded-2xl bg-panel2 px-2 py-2.5 flex flex-col items-center gap-1.5 press active:brightness-95">
-                  <ChartLine size={24} strokeWidth={1.6} />
-                  <span className="text-[13.5px] leading-tight">Futures</span>
+                <button onClick={() => setFuturesOpen(true)} className="shrink-0 w-[78px] lg:w-[96px] rounded-[14px] lg:rounded-2xl bg-panel2 px-1.5 lg:px-2 py-2 lg:py-2.5 flex flex-col items-center gap-1 lg:gap-1.5 press active:brightness-95">
+                  <ChartLine size={24} strokeWidth={1.6} className="h-[21px] w-[21px] lg:h-6 lg:w-6" />
+                  <span className="text-[12px] lg:text-[13.5px] leading-tight">Futures</span>
                 </button>
               )}
               {fno.option_expiries.length > 0 && (
-                <button onClick={() => { openOptions(); window.scrollTo({ top: 0, behavior: "smooth" }); }} className="shrink-0 w-[96px] rounded-2xl bg-panel2 px-2 py-2.5 flex flex-col items-center gap-1.5 press active:brightness-95">
-                  <span className="h-6 w-6 rounded-md bg-brand text-white grid place-items-center"><Link2 size={15} strokeWidth={2} /></span>
-                  <span className="text-[13.5px] leading-tight">Option Chain</span>
+                <button onClick={() => { openOptions(); window.scrollTo({ top: 0, behavior: "smooth" }); }} className="shrink-0 w-[78px] lg:w-[96px] rounded-[14px] lg:rounded-2xl bg-panel2 px-1.5 lg:px-2 py-2 lg:py-2.5 flex flex-col items-center gap-1 lg:gap-1.5 press active:brightness-95">
+                  <span className="h-[21px] w-[21px] lg:h-6 lg:w-6 rounded-md bg-brand text-white grid place-items-center"><Link2 size={15} strokeWidth={2} /></span>
+                  <span className="text-[12px] lg:text-[13.5px] leading-tight">Option Chain</span>
                 </button>
               )}
             </div>
@@ -260,11 +260,11 @@ export default function TradePage() {
 
           {seg === "futures" && fno && !futureMode && (
             <div className="px-4 lg:px-0 space-y-3">
-              <div className="text-[15px] text-muted">Expiry</div>
+              <div className="text-[14px] lg:text-[15px] text-muted">Expiry</div>
               <div className="flex gap-2.5 overflow-x-auto no-scrollbar">
                 {fno.futures.map((f) => <Chip key={f.symbol} on={f.symbol === futSym} onClick={() => setFutSym(f.symbol)}>{fmtDate(f.expiry)}</Chip>)}
               </div>
-              {fut && <div className="text-[15px] text-muted">{futureName(fno.underlying, fut.expiry)} · lot {fut.lot_size} · LTP <b className="text-ink font-medium"><Flash value={futLive.fresh && futLive.tick ? futLive.tick.ltp : fut.ltp}>{price(futLive.fresh && futLive.tick ? futLive.tick.ltp : fut.ltp)}</Flash></b></div>}
+              {fut && <div className="text-[14px] lg:text-[15px] text-muted">{futureName(fno.underlying, fut.expiry)} · lot {fut.lot_size} · LTP <b className="text-ink font-medium"><Flash value={futLive.fresh && futLive.tick ? futLive.tick.ltp : fut.ltp}>{price(futLive.fresh && futLive.tick ? futLive.tick.ltp : fut.ltp)}</Flash></b></div>}
             </div>
           )}
 
@@ -276,7 +276,7 @@ export default function TradePage() {
               {chain ? <OptionChain chain={chain} selected={leg?.symbol ?? null}
                                     onPick={(l, strike, kind) => { setLeg({ ...l, label: `${symbol} ${price(strike)} ${kind}` }); if (window.innerWidth < 1024) setSheet("BUY"); }} />
                 : <div className="skeleton h-64 w-full" />}
-              <div className="text-[13px] text-muted pt-3">Tap a price to trade that contract.</div>
+              <div className="text-[12px] lg:text-[13px] text-muted pt-3">Tap a price to trade that contract.</div>
             </div>
           )}
 
@@ -285,7 +285,7 @@ export default function TradePage() {
 
         {/* desktop order panel */}
         <div className="hidden lg:block lg:sticky lg:top-[96px]">
-          {contract ? panel("BUY", false) : <div className="card p-6 text-[15px] text-muted">Pick a call or put from the option chain to place an order.</div>}
+          {contract ? panel("BUY", false) : <div className="card p-6 text-[14px] lg:text-[15px] text-muted">Pick a call or put from the option chain to place an order.</div>}
         </div>
       </div>
 
@@ -293,10 +293,10 @@ export default function TradePage() {
       <div className="lg:hidden fixed inset-x-0 bottom-0 z-30 bg-white border-t border-line px-4 pt-3 pb-[calc(12px+env(safe-area-inset-bottom))] grid grid-cols-2 gap-3">
         {contract ? (
           <>
-            <button className="btn py-4 text-[18px] text-white bg-buy" onClick={() => setSheet("BUY")}>Buy</button>
-            <button className="btn py-4 text-[18px] text-white bg-sell" onClick={() => setSheet("SELL")}>Sell</button>
+            <button className="btn py-3 lg:py-4 text-[16px] lg:text-[18px] text-white bg-buy" onClick={() => setSheet("BUY")}>Buy</button>
+            <button className="btn py-3 lg:py-4 text-[16px] lg:text-[18px] text-white bg-sell" onClick={() => setSheet("SELL")}>Sell</button>
           </>
-        ) : <div className="col-span-2 text-center text-[15px] text-muted py-3">Pick a strike from the option chain</div>}
+        ) : <div className="col-span-2 text-center text-[14px] lg:text-[15px] text-muted py-3">Pick a strike from the option chain</div>}
       </div>
       {fno && (
         <FuturesSheet open={futuresOpen} onClose={() => setFuturesOpen(false)} underlying={fno.underlying} futures={fno.futures}

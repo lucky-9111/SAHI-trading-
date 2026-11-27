@@ -28,12 +28,12 @@ export const INDEX_TRADE: Record<string, string> = { NIFTY50: "NIFTY", BANKNIFTY
 export function IndexCard({ i, active, onClick, to }: { i: IndexRow; active?: boolean; onClick?: () => void; to?: string }) {
   const body = (
     <>
-      <div className="text-[15.5px] text-ink">{i.key}</div>
-      <div className="mt-2.5 text-[20px] font-medium leading-none"><Flash value={i.ltp}>{price(i.ltp)}</Flash></div>
-      <div className={`mt-1.5 text-[15.5px] ${pnlClass(i.change)}`}>{changeText(i.change, i.pct)}</div>
+      <div className="text-[13px] lg:text-[15.5px] text-ink truncate">{i.key}</div>
+      <div className="mt-2 lg:mt-2.5 text-[16.5px] lg:text-[20px] font-medium leading-none whitespace-nowrap"><Flash value={i.ltp}>{price(i.ltp)}</Flash></div>
+      <div className={`mt-1 lg:mt-1.5 text-[13px] lg:text-[15.5px] whitespace-nowrap ${pnlClass(i.change)}`}>{changeText(i.change, i.pct)}</div>
     </>
   );
-  const cls = `card shrink-0 w-[39vw] min-w-[150px] max-w-[200px] lg:w-[210px] lg:max-w-none px-4 py-4 text-left press transition-colors ${active ? "!border-ink border-[1.5px]" : ""}`;
+  const cls = `card shrink-0 w-[137px] lg:w-[210px] px-4 py-3 lg:py-4 text-left press transition-colors ${active ? "!border-ink border-[1.5px]" : ""}`;
   if (to) return <Link to={to} className={cls}>{body}</Link>;
   return <button onClick={onClick} className={cls}>{body}</button>;
 }
@@ -41,8 +41,8 @@ export function IndexCard({ i, active, onClick, to }: { i: IndexRow; active?: bo
 export function TrendTile({ i }: { i: IndexRow }) {
   return (
     <div className="card px-4 py-3">
-      <div className="text-[15px]">{i.key}</div>
-      <div className={`text-[14px] ${pnlClass(i.pct)}`}>{Number(i.pct) > 0 ? "+" : ""}{Number(i.pct).toFixed(2)}% · {i.trend}</div>
+      <div className="text-[14px] lg:text-[15px]">{i.key}</div>
+      <div className={`text-[13px] lg:text-[14px] ${pnlClass(i.pct)}`}>{Number(i.pct) > 0 ? "+" : ""}{Number(i.pct).toFixed(2)}% · {i.trend}</div>
     </div>
   );
 }
@@ -76,8 +76,8 @@ export function ContractRow({ r, icon }: { r: ContractQuote; icon?: boolean }) {
           <div className="row-sub flex items-center gap-2">
             <span>{commodity ? "MCX" : r.contract}</span>
             {r.expiry && (expToday
-              ? <span className="rounded-md bg-panel2 px-2 py-0.5 text-[13px] text-[#555]">Expiry Today</span>
-              : commodity && <span className="text-[13px] text-faint">Exp {fmtExpiry(r.expiry)}</span>)}
+              ? <span className="rounded-md bg-panel2 px-2 py-0.5 text-[12px] lg:text-[13px] text-[#555]">Expiry Today</span>
+              : commodity && <span className="text-[12px] lg:text-[13px] text-faint">Exp {fmtExpiry(r.expiry)}</span>)}
           </div>
         </div>
       </Link>

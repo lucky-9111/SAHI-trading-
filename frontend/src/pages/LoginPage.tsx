@@ -30,15 +30,15 @@ export default function LoginPage() {
         <AppMark size={56} />
         <div>
           <h1 className="page-title">{mode === "login" ? "Welcome back" : "Create account"}</h1>
-          <p className="text-[16px] text-muted mt-2">SAHI Paper Trading · virtual money only, no real orders.</p>
+          <p className="text-[15px] lg:text-[16px] text-muted mt-2">SAHI Paper Trading · virtual money only, no real orders.</p>
         </div>
         {mode === "register" && <input className="input" placeholder="Name" value={name} onChange={(e) => setName(e.target.value)} required />}
         <input className="input" type="email" placeholder="Email" autoComplete="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
         <input className="input" type="password" placeholder="Password (min 8 characters)" minLength={8} autoComplete={mode === "login" ? "current-password" : "new-password"}
                value={password} onChange={(e) => setPassword(e.target.value)} required />
-        {error && <div role="alert" className="text-[14px] text-down">{error}</div>}
+        {error && <div role="alert" className="text-[13px] lg:text-[14px] text-down">{error}</div>}
         <button className="btn-pill w-full" disabled={busy}>{busy ? "Please wait…" : mode === "login" ? "Log in" : "Create account"}</button>
-        <button type="button" className="w-full text-[15px] text-muted active:opacity-60"
+        <button type="button" className="w-full text-[14px] lg:text-[15px] text-muted active:opacity-60"
                 onClick={() => { setMode(mode === "login" ? "register" : "login"); setError(""); }}>
           {mode === "login" ? "New here? Create an account" : "Already registered? Log in"}
         </button>

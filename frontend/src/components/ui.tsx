@@ -24,16 +24,16 @@ export function Tabs<T extends string>({ items, value, onChange, size = "lg", cl
     return () => window.removeEventListener("resize", onResize);
   }, [value]);
 
-  const text = size === "lg" ? "text-[19px] lg:text-[17px]" : "text-[17px] lg:text-[16px]";
+  const text = size === "lg" ? "text-[16px] lg:text-[17px]" : "text-[15.5px] lg:text-[16px]";
   return (
     <div className={`relative flex items-stretch border-b border-line ${className}`}>
-      <div ref={wrap} role="tablist" className="relative flex-1 flex gap-7 overflow-x-auto no-scrollbar px-4 lg:px-0">
+      <div ref={wrap} role="tablist" className="relative flex-1 flex gap-6 lg:gap-7 overflow-x-auto no-scrollbar px-4 lg:px-0">
         {items.map((it) => (
           <button key={it.value} ref={(el) => { refs.current[it.value] = el; }} role="tab" aria-selected={value === it.value}
                   onClick={() => onChange(it.value)}
-                  className={`relative shrink-0 py-3.5 ${text} whitespace-nowrap transition-colors duration-200 flex items-center gap-1.5 ${
+                  className={`relative shrink-0 py-2.5 lg:py-3.5 ${text} whitespace-nowrap transition-colors duration-200 flex items-center gap-1.5 ${
                     value === it.value ? "text-ink font-medium" : "text-muted"}`}>
-            {it.label}{it.info && <Info size={16} strokeWidth={1.8} />}
+            {it.label}{it.info && <Info size={16} strokeWidth={1.8} className="h-[15px] w-[15px] lg:h-4 lg:w-4" />}
           </button>
         ))}
         {bar && <span className="absolute bottom-0 h-[3px] rounded-full bg-ink transition-all duration-300 ease-[cubic-bezier(.2,.8,.2,1)]"
@@ -57,7 +57,7 @@ export function Segmented<T extends string>({ items, value, onChange, tone = "da
     const el = refs.current[value];
     if (el) setPill({ left: el.offsetLeft, width: el.offsetWidth });
   }, [value, items.length]);
-  const pad = size === "sm" ? "px-4 py-[6px] text-[15px]" : "px-5 py-[7px] text-[16.5px]";
+  const pad = size === "sm" ? "px-4 py-[6px] text-[14px] lg:text-[15px]" : "px-5 py-[7px] text-[15px] lg:text-[16.5px]";
   return (
     <div ref={wrap} role="group" aria-label={label} className={`seg ${className}`}>
       {pill && <span className={`absolute top-1 bottom-1 rounded-full transition-all duration-300 ease-[cubic-bezier(.2,.8,.2,1)] ${
@@ -130,7 +130,7 @@ export function BackBar({ right, title }: { right?: ReactNode; title?: ReactNode
   return (
     <div className="sticky top-0 z-20 bg-white/95 backdrop-blur flex items-center justify-between px-3 h-14">
       <button aria-label="Back" className="h-10 w-10 grid place-items-center rounded-full active:bg-soft" onClick={() => (history.length > 1 ? nav(-1) : nav("/"))}>
-        <ChevronLeft size={28} strokeWidth={1.8} />
+        <ChevronLeft size={28} strokeWidth={1.8} className="h-[25px] w-[25px] lg:h-7 lg:w-7" />
       </button>
       {title && <div className="flex-1 min-w-0 px-1">{title}</div>}
       <div className="flex items-center gap-1">{right}</div>
@@ -149,7 +149,7 @@ export function SectionHeader({ title, right }: { title: ReactNode; right?: Reac
 
 export function ViewAll({ onClick, label = "View all" }: { onClick?: () => void; label?: string }) {
   return (
-    <button onClick={onClick} className="w-full flex items-center justify-between py-4 text-[17px] text-muted active:opacity-60">
+    <button onClick={onClick} className="w-full flex items-center justify-between py-3.5 lg:py-4 text-[15.5px] lg:text-[17px] text-muted active:opacity-60">
       {label}<ChevronRight size={20} strokeWidth={1.6} />
     </button>
   );
@@ -159,8 +159,8 @@ export function EmptyState({ art, title, text, action }: { art: ReactNode; title
   return (
     <div className="flex flex-col items-center text-center px-6 pt-10 pb-16 animate-fade">
       <div className="w-[260px] max-w-[70vw]">{art}</div>
-      <div className="mt-8 text-[17px] text-muted">{title}</div>
-      {text && <div className="mt-1 text-[17px] text-ink">{text}</div>}
+      <div className="mt-8 text-[16px] lg:text-[17px] text-muted">{title}</div>
+      {text && <div className="mt-1 text-[16px] lg:text-[17px] text-ink">{text}</div>}
       {action && <div className="mt-7">{action}</div>}
     </div>
   );

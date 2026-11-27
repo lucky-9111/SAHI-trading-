@@ -28,35 +28,35 @@ input[type="number"] { -moz-appearance: textfield; }
   .card { @apply bg-white border border-line rounded-card; }
   .divider { @apply border-t border-line; }
   .section { @apply px-4 lg:px-0 py-6; }
-  .page-title { @apply font-serif font-medium text-[32px] leading-[1.15] tracking-[-0.01em] text-ink; }
-  .h2 { @apply text-[20px] font-medium leading-tight text-ink; }
+  .page-title { @apply font-serif font-medium text-[27px] lg:text-[32px] leading-[1.15] tracking-[-0.01em] text-ink; }
+  .h2 { @apply text-[17px] lg:text-[20px] font-medium leading-tight text-ink; }
 
   /* buttons */
   .btn { @apply inline-flex items-center justify-center gap-2 rounded-full px-4 py-2 text-sm font-medium transition-[background,transform,opacity] duration-150 active:scale-[0.97] disabled:opacity-40 disabled:cursor-not-allowed disabled:active:scale-100; }
   .btn-primary { @apply btn bg-ink text-white hover:bg-black; }
-  .btn-pill { @apply btn bg-ink text-white text-[17px] px-12 py-4 hover:bg-black; }
+  .btn-pill { @apply btn bg-ink text-white text-[15.5px] px-10 py-3.5 lg:text-[17px] lg:px-12 lg:py-4 hover:bg-black; }
   .btn-ghost { @apply btn border border-line text-ink hover:bg-soft; }
   .btn-outline { @apply btn border border-ink text-ink bg-white hover:bg-soft; }
-  .icon-btn { @apply h-12 w-12 shrink-0 grid place-items-center rounded-full border border-line bg-white text-ink transition-transform active:scale-95; }
-  .icon-btn-grey { @apply h-10 w-10 shrink-0 grid place-items-center rounded-full bg-panel2 text-ink transition-transform active:scale-95; }
+  .icon-btn { @apply h-10 w-10 lg:h-12 lg:w-12 shrink-0 grid place-items-center rounded-full border border-line bg-white text-ink transition-transform active:scale-95; }
+  .icon-btn-grey { @apply h-9 w-9 lg:h-10 lg:w-10 shrink-0 grid place-items-center rounded-full bg-panel2 text-ink transition-transform active:scale-95; }
 
   /* inputs */
-  .input { @apply w-full rounded-2xl bg-white border border-line px-4 py-3 text-[15px] outline-none transition-colors focus:border-ink placeholder:text-faint; }
+  .input { @apply w-full rounded-2xl bg-white border border-line px-4 py-3 text-[14.5px] lg:text-[15px] outline-none transition-colors focus:border-ink placeholder:text-faint; }
 
   /* chips (Nifty 50 ✓ / Price ✓ / My Lists ✓) */
-  .chip { @apply inline-flex items-center gap-1.5 rounded-full border border-line bg-white px-4 py-[7px] text-[15px] text-muted whitespace-nowrap transition-colors active:scale-[0.97]; }
-  .chip-on { @apply inline-flex items-center gap-1.5 rounded-full border-[1.5px] border-ink bg-white px-4 py-[6.5px] text-[15px] text-ink whitespace-nowrap active:scale-[0.97]; }
+  .chip { @apply inline-flex items-center gap-1.5 rounded-full border border-line bg-white px-3.5 py-[5px] text-[14px] lg:px-4 lg:py-[7px] lg:text-[15px] text-muted whitespace-nowrap transition-colors active:scale-[0.97]; }
+  .chip-on { @apply inline-flex items-center gap-1.5 rounded-full border-[1.5px] border-ink bg-white px-3.5 py-[4.5px] text-[14px] lg:px-4 lg:py-[6.5px] lg:text-[15px] text-ink whitespace-nowrap active:scale-[0.97]; }
 
   /* segmented controls */
   .seg { @apply relative inline-flex rounded-full bg-panel2 p-[3px]; }
-  .seg-btn { @apply relative z-10 rounded-full px-5 py-2.5 text-[15px] whitespace-nowrap transition-colors duration-200; }
+  .seg-btn { @apply relative z-10 rounded-full px-4 py-2 text-[14px] lg:px-5 lg:py-2.5 lg:text-[15px] whitespace-nowrap transition-colors duration-200; }
 
   /* list rows */
-  .row { @apply flex items-center justify-between gap-3 py-[20px] border-b border-line last:border-0; }
-  .row-name { @apply text-[17px] leading-snug text-ink truncate; }
-  .row-sub { @apply text-[14.5px] text-muted mt-1.5; }
-  .row-price { @apply text-[17px] font-medium text-ink text-right; }
-  .row-chg { @apply text-[14.5px] text-right mt-1.5; }
+  .row { @apply flex items-center justify-between gap-3 py-[16px] lg:py-[20px] border-b border-line last:border-0; }
+  .row-name { @apply text-[16px] lg:text-[17px] leading-snug text-ink truncate; }
+  .row-sub { @apply text-[13.5px] lg:text-[14.5px] text-muted mt-1 lg:mt-1.5; }
+  .row-price { @apply text-[16px] lg:text-[17px] font-medium text-ink text-right; }
+  .row-chg { @apply text-[13.5px] lg:text-[14.5px] text-right mt-1 lg:mt-1.5 whitespace-nowrap; }
 
   /* old table helpers (desktop tables) */
   .th { @apply text-left text-xs font-medium text-muted px-3 py-2; }

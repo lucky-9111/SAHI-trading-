@@ -51,8 +51,8 @@ export default function OrderBookPage() {
 
   return (
     <div className="lg:max-w-[820px]">
-      <PageTitle right={<Link to="/trade-book" className="mb-1.5 inline-flex items-center gap-1.5 rounded-full border border-line px-4 py-2 text-[14px] press"><History size={16} />Trade history</Link>}>Orders</PageTitle>
-      {error && <div role="alert" className="mx-4 lg:mx-0 mb-3 rounded-2xl bg-sellbg/60 px-4 py-3 text-[15px] text-sell">{error}</div>}
+      <PageTitle right={<Link to="/trade-book" className="mb-1.5 inline-flex items-center gap-1.5 rounded-full border border-line px-4 py-2 text-[13px] lg:text-[14px] press"><History size={16} />Trade history</Link>}>Orders</PageTitle>
+      {error && <div role="alert" className="mx-4 lg:mx-0 mb-3 rounded-2xl bg-sellbg/60 px-4 py-3 text-[14px] lg:text-[15px] text-sell">{error}</div>}
       {rows === null ? <div className="px-4 lg:px-0"><Skeleton rows={6} /></div> : rows.length === 0 ? (
         <EmptyState art={<ClipboardArt />} title="You don’t have any orders" text="Place your first paper trade."
                     action={<button className="btn-pill" onClick={() => nav("/funds")}>Add money</button>} />
@@ -70,17 +70,17 @@ export default function OrderBookPage() {
                 <div key={o.id} className="row items-start">
                   <Link to={`/trade?symbol=${o.chart_symbol}&exchange=${o.chart_exchange}`} className="flex-1 min-w-0 active:opacity-60">
                     <div className="flex items-center gap-2">
-                      <span className={`rounded-md px-2 py-0.5 text-[13px] font-medium ${buy ? "bg-buybg text-buy" : "bg-sellbg text-sell"}`}>{buy ? "BUY" : "SELL"}</span>
+                      <span className={`rounded-md px-2 py-0.5 text-[12px] lg:text-[13px] font-medium ${buy ? "bg-buybg text-buy" : "bg-sellbg text-sell"}`}>{buy ? "BUY" : "SELL"}</span>
                       <span className="row-name">{displayName(o.symbol)}</span>
                     </div>
                     <div className="row-sub">{o.quantity} qty · {o.product.toLowerCase()} · {o.order_type.toLowerCase()}{o.order_type !== "MARKET" ? ` ${inr(o.limit_price)}` : ""} · {o.strategy}</div>
-                    {o.reject_reason && <div className="text-[13px] text-down mt-1">{o.reject_reason}</div>}
+                    {o.reject_reason && <div className="text-[12px] lg:text-[13px] text-down mt-1">{o.reject_reason}</div>}
                   </Link>
                   <div className="text-right shrink-0">
                     <div className="row-price">{o.exec_price ? inr(o.exec_price) : o.limit_price ? inr(o.limit_price) : "Market"}</div>
                     <div className={`row-chg ${cls}`}>{label} · {when(o.created_at)}</div>
                     {o.status === "PENDING" && (
-                      <button className="mt-2 rounded-full border border-line px-3.5 py-1 text-[13px] press disabled:opacity-40" disabled={busy === o.id} onClick={() => cancel(o.id)}>
+                      <button className="mt-2 rounded-full border border-line px-3.5 py-1 text-[12px] lg:text-[13px] press disabled:opacity-40" disabled={busy === o.id} onClick={() => cancel(o.id)}>
                         {busy === o.id ? "Cancelling…" : "Cancel"}
                       </button>
                     )}

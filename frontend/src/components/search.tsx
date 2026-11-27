@@ -60,13 +60,13 @@ export default function SearchOverlay() {
           <input ref={input} value={q} onChange={(e) => setQ(e.target.value)} aria-label="Search"
                  onKeyDown={(e) => e.key === "Enter" && hits[0] && pick(hits[0])}
                  placeholder={opts.placeholder ?? "Search stocks, indices, commodities"}
-                 className="flex-1 h-11 text-[17px] outline-none placeholder:text-faint bg-transparent" />
+                 className="flex-1 h-11 text-[16px] lg:text-[17px] outline-none placeholder:text-faint bg-transparent" />
           {q && <button aria-label="Clear" className="h-9 w-9 grid place-items-center rounded-full bg-panel2" onClick={() => setQ("")}><X size={16} /></button>}
         </div>
         <div className="flex-1 overflow-y-auto px-4">
           {!q.trim() && recent.length > 0 && (
             <>
-              <div className="pt-5 pb-2 text-[13px] uppercase tracking-wide text-muted">Recently viewed</div>
+              <div className="pt-5 pb-2 text-[12px] lg:text-[13px] uppercase tracking-wide text-muted">Recently viewed</div>
               {recent.slice(0, 8).map((r) => (
                 <button key={r.symbol + r.exchange} className="w-full row text-left active:bg-soft"
                         onClick={() => pick({ id: 0, symbol: r.symbol, exchange: r.exchange, name: null, instrument_type: "" })}>
@@ -82,7 +82,7 @@ export default function SearchOverlay() {
                 <div className="row-name">{displayName(h.symbol)}</div>
                 <div className="row-sub">{h.symbol !== displayName(h.symbol) ? `${h.symbol} · ` : ""}{h.exchange}</div>
               </div>
-              <span className="text-[13px] text-muted rounded-full bg-soft px-3 py-1">{TYPE[h.instrument_type] ?? h.instrument_type}</span>
+              <span className="text-[12px] lg:text-[13px] text-muted rounded-full bg-soft px-3 py-1">{TYPE[h.instrument_type] ?? h.instrument_type}</span>
             </button>
           ))}
           {q.trim() && !busy && hits.length === 0 && <div className="py-10 text-center text-muted">No match for “{q}”.</div>}

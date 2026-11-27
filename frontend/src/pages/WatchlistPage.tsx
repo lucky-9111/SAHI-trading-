@@ -24,10 +24,10 @@ function Rows({ items, layout, edit, onRemove }: { items: Item[]; layout: Layout
         {live.map((i) => (
           <div key={i.instrument_id} className="card relative px-4 py-4">
             <Link to={`/trade?symbol=${i.symbol}&exchange=${i.exchange}`} className="block active:opacity-60">
-              <div className="text-[16px] truncate pr-5">{displayName(i.symbol)}</div>
-              <div className="text-[13px] text-muted">{i.exchange}</div>
-              <div className="mt-3 text-[19px] font-medium"><Flash value={i.ltp}>{price(i.ltp)}</Flash></div>
-              <div className={`text-[14px] ${i.change ? pnlClass(i.change) : "text-muted"}`}>{changeText(i.change, i.pct)}</div>
+              <div className="text-[15px] lg:text-[16px] truncate pr-5">{displayName(i.symbol)}</div>
+              <div className="text-[12px] lg:text-[13px] text-muted">{i.exchange}</div>
+              <div className="mt-3 text-[16.5px] lg:text-[19px] font-medium"><Flash value={i.ltp}>{price(i.ltp)}</Flash></div>
+              <div className={`text-[13px] lg:text-[14px] ${i.change ? pnlClass(i.change) : "text-muted"}`}>{changeText(i.change, i.pct)}</div>
             </Link>
             {edit && onRemove && <button aria-label={`Remove ${i.symbol}`} onClick={() => onRemove(i)} className="absolute top-3 right-3 h-7 w-7 grid place-items-center rounded-full bg-panel2"><X size={15} /></button>}
           </div>
@@ -126,9 +126,9 @@ export default function WatchlistPage() {
                         <button aria-label="List options" className="h-10 w-8 grid place-items-center" onClick={() => setMenu(!menu)}><MoreVertical size={22} /></button>
                         {menu && active && (
                           <div className="absolute right-0 top-11 z-30 w-52 card shadow-float py-1.5 animate-fade">
-                            <button className="w-full text-left px-4 py-3 text-[15px] active:bg-soft" onClick={() => { setEdit(!edit); setMenu(false); }}>{edit ? "Done editing" : "Edit stocks"}</button>
+                            <button className="w-full text-left px-4 py-3 text-[14px] lg:text-[15px] active:bg-soft" onClick={() => { setEdit(!edit); setMenu(false); }}>{edit ? "Done editing" : "Edit stocks"}</button>
                             {lists && lists.length > 1 && (
-                              <button className="w-full text-left px-4 py-3 text-[15px] text-sell active:bg-soft"
+                              <button className="w-full text-left px-4 py-3 text-[14px] lg:text-[15px] text-sell active:bg-soft"
                                       onClick={() => { setMenu(false); if (window.confirm(`Delete "${active.name}"?`)) run(() => api(`/api/watchlists/${active.id}`, { method: "DELETE" })); }}>Delete list</button>
                             )}
                           </div>
@@ -144,10 +144,10 @@ export default function WatchlistPage() {
               <button className="btn-primary px-6">Create</button>
             </form>
           )}
-          {error && <div role="alert" className="mx-4 lg:mx-0 mt-3 rounded-2xl bg-sellbg/60 px-4 py-3 text-[15px] text-sell">{error}</div>}
+          {error && <div role="alert" className="mx-4 lg:mx-0 mt-3 rounded-2xl bg-sellbg/60 px-4 py-3 text-[14px] lg:text-[15px] text-sell">{error}</div>}
           <div className="px-4 lg:px-0 pt-5 flex items-center justify-between">
             <LayoutSwitch layout={layout} setLayout={setLayout} />
-            {edit && <button className="text-[15px] font-medium" onClick={() => setEdit(false)}>Done</button>}
+            {edit && <button className="text-[14px] lg:text-[15px] font-medium" onClick={() => setEdit(false)}>Done</button>}
           </div>
           <div className="px-4 lg:px-0">
             {lists === null ? <Skeleton rows={6} /> : !active ? null : active.items.length === 0 ? (
@@ -155,7 +155,7 @@ export default function WatchlistPage() {
                           action={<button className="btn-pill" onClick={addStock}>Search &amp; Add</button>} />
             ) : (
               <>
-                {!active.prices_available && <div className="text-[14px] text-[#b26a00] pt-3">Prices are unavailable right now.</div>}
+                {!active.prices_available && <div className="text-[13px] lg:text-[14px] text-[#b26a00] pt-3">Prices are unavailable right now.</div>}
                 <Rows items={active.items} layout={layout} edit={edit}
                       onRemove={(i) => run(() => api(`/api/watchlists/${active.id}/items/${i.instrument_id}`, { method: "DELETE" }))} />
               </>
@@ -163,11 +163,11 @@ export default function WatchlistPage() {
           </div>
           <div className="h-20" />
           {/* floating search & add pill */}
-          <div className="fixed left-1/2 -translate-x-1/2 bottom-[calc(88px+env(safe-area-inset-bottom))] lg:bottom-8 lg:left-[calc(50%+124px)] z-30">
+          <div className="fixed left-1/2 -translate-x-1/2 bottom-[calc(76px+env(safe-area-inset-bottom))] lg:bottom-8 lg:left-[calc(50%+124px)] z-30">
             <div className="flex items-center gap-1 rounded-full bg-white/95 backdrop-blur shadow-float border border-line pl-2 pr-1.5 py-1.5">
               <button aria-label="Edit list" onClick={() => setEdit(!edit)} className={`h-11 w-11 grid place-items-center rounded-full ${edit ? "bg-ink text-white" : ""}`}><Trash2 size={19} strokeWidth={1.7} /></button>
               <span className="w-px h-6 bg-line" />
-              <button onClick={addStock} className="h-11 flex items-center gap-2 rounded-full bg-panel2 px-5 text-[16px] text-[#444] whitespace-nowrap press"><Search size={19} />Search &amp; Add</button>
+              <button onClick={addStock} className="h-11 flex items-center gap-2 rounded-full bg-panel2 px-5 text-[15px] lg:text-[16px] text-[#444] whitespace-nowrap press"><Search size={19} />Search &amp; Add</button>
             </div>
           </div>
         </>
