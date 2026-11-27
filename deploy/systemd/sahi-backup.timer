@@ -1,0 +1,10 @@
+[Unit]
+Description=SAHI Trading - daily database backup (02:30 IST, after MCX close, before the 09:00 open)
+
+[Timer]
+OnCalendar=*-*-* 02:30:00 Asia/Kolkata
+Persistent=true
+RandomizedDelaySec=300
+
+[Install]
+WantedBy=timers.target

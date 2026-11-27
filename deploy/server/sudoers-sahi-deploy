@@ -1,0 +1,4 @@
+# /etc/sudoers.d/sahi-deploy (0440, validated with visudo -c by bootstrap.sh; works with sudo and sudo-rs)
+# The CI deploy user can run exactly these root-owned scripts and nothing else. Each script validates its arguments.
+# (env_reset and no-tty are the defaults; they are not restated because sudo-rs rejects some legacy settings.)
+deploy ALL=(root) NOPASSWD: /usr/local/sbin/sahi-deploy, /usr/local/sbin/sahi-rollback, /usr/local/sbin/sahi-status

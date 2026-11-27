@@ -1,0 +1,81 @@
+#!/usr/bin/env bash
+# sahi-monitor - run every 5 minutes by sahi-monitor.timer (as the sahi user).
+# Checks: backend service + readiness, nginx + frontend, disk, memory, CPU load, age of the newest backup.
+# Problems go to the journal (`journalctl -t sahi-monitor`) with priority warning/err. If ALERT_WEBHOOK_URL is set
+# in /etc/sahi/monitor.env, a JSON message {"text": "..."} is POSTed when a check changes state (fail or recover),
+# not every 5 minutes. Messages contain check names and numbers only - no secrets, no account data.
+set -uo pipefail
+# shellcheck source=sahi-common.sh
+source /usr/local/lib/sahi/sahi-common.sh
+
+DISK_WARN_PCT=85
+MEM_MIN_AVAILABLE_PCT=10
+LOAD_PER_CPU_MAX=2
+BACKUP_MAX_AGE_HOURS=26
+ALERT_WEBHOOK_URL=""
+# shellcheck disable=SC1091
+[[ -r /etc/sahi/monitor.env ]] && source /etc/sahi/monitor.env
+STATE=${STATE_DIRECTORY:-/var/lib/sahi-monitor}
+mkdir -p "$STATE"
+
+declare -A result
+check() {  # check name ok|fail "detail"
+  result[$1]="$2|$3"
+}
+
+systemctl is-active --quiet "$SERVICE" && check service ok "" || check service fail "$SERVICE is $(systemctl is-active "$SERVICE")"
+if curl -fs -m 5 -o /dev/null "$BACKEND_URL/api/health/ready"; then check ready ok ""; else check ready fail "backend readiness check failed"; fi
+systemctl is-active --quiet nginx && check nginx ok "" || check nginx fail "nginx is $(systemctl is-active nginx)"
+if curl -fs -m 5 "$NGINX_URL/" | grep -q '<div id="root">'; then check frontend ok ""; else check frontend fail "frontend not served"; fi
+
+for mp in / "$STATE_DIR" "$BACKUP_DIR"; do
+  pct=$(df -P "$mp" 2>/dev/null | awk 'NR==2 {gsub("%","",$5); print $5}')
+  [[ -n $pct ]] || continue
+  if (( pct >= DISK_WARN_PCT )); then check "disk:$mp" fail "disk ${pct}% used on $mp"; else check "disk:$mp" ok ""; fi
+done
+
+mem_total=$(awk '/^MemTotal:/ {print $2}' /proc/meminfo)
+mem_avail=$(awk '/^MemAvailable:/ {print $2}' /proc/meminfo)
+mem_pct=$(( mem_avail * 100 / mem_total ))
+if (( mem_pct < MEM_MIN_AVAILABLE_PCT )); then check memory fail "only ${mem_pct}% memory available"; else check memory ok ""; fi
+
+cpus=$(nproc)
+load5=$(awk '{print $2}' /proc/loadavg)
+if awk -v l="$load5" -v c="$cpus" -v m="$LOAD_PER_CPU_MAX" 'BEGIN {exit !(l > c * m)}'; then
+  check cpu fail "5-minute load $load5 on $cpus CPU(s)"
+else
+  check cpu ok ""
+fi
+
+newest=$(find "$BACKUP_DIR" -maxdepth 1 -name 'sahi-*.db.gz' -printf '%T@\n' 2>/dev/null | sort -n | tail -n1)
+if [[ -z $newest ]]; then
+  check backup fail "no database backup found in $BACKUP_DIR"
+else
+  age_h=$(( ( $(date +%s) - ${newest%.*} ) / 3600 ))
+  if (( age_h > BACKUP_MAX_AGE_HOURS )); then check backup fail "newest backup is ${age_h}h old"; else check backup ok ""; fi
+fi
+
+alert() {
+  logger -t sahi-monitor -p "$1" -- "$2"
+  if [[ -n $ALERT_WEBHOOK_URL ]]; then
+    local msg=${2//\\/\\\\}; msg=${msg//\"/\\\"}
+    curl -fs -m 10 -o /dev/null -H 'Content-Type: application/json' \
+      -d "{\"text\": \"[SAHI $(hostname -s)] $msg\"}" "$ALERT_WEBHOOK_URL" || logger -t sahi-monitor -p warning "webhook delivery failed"
+  fi
+}
+
+failed=0
+for name in "${!result[@]}"; do
+  IFS='|' read -r status detail <<<"${result[$name]}"
+  key=${name//[^A-Za-z0-9]/_}
+  prev=$(cat "$STATE/$key" 2>/dev/null || echo ok)
+  if [[ $status == fail ]]; then
+    failed=1
+    if [[ $prev != fail ]]; then alert err "PROBLEM $name: $detail"; else logger -t sahi-monitor -p warning -- "still failing $name: $detail"; fi
+  elif [[ $prev == fail ]]; then
+    alert notice "RECOVERED $name"
+  fi
+  echo "$status" >"$STATE/$key"
+done
+(( failed == 0 )) && logger -t sahi-monitor -p info "all checks ok"
+exit 0

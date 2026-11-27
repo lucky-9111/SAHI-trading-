@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+# sahi-status - read-only overview: live release, service state, health, recent deploys, latest backups.
+# Safe to run any time (the deploy user may run it via sudo). Prints no secrets.
+set -uo pipefail
+# shellcheck source=sahi-common.sh
+source /usr/local/lib/sahi/sahi-common.sh
+
+cur=$(current_release)
+echo "== release"
+echo "current:   ${cur:+$(basename "$cur")}"
+echo "revision:  $(cat "$APP_ROOT/DEPLOYED_REVISION" 2>/dev/null || echo unknown)"
+echo
+echo "== services"
+for u in "$SERVICE" nginx sahi-backup.timer sahi-monitor.timer; do printf '%-22s %s\n' "$u" "$(systemctl is-active "$u")"; done
+printf '%-22s %s\n' "restarts ($SERVICE)" "$(systemctl show -p NRestarts --value "$SERVICE")"
+echo
+echo "== health"
+printf 'backend ready:  %s\n' "$(curl -s -m 5 -o /dev/null -w '%{http_code}' "$BACKEND_URL/api/health/ready")"
+printf 'via nginx:      %s\n' "$(curl -s -m 5 -o /dev/null -w '%{http_code}' "$NGINX_URL/api/health/ready")"
+printf 'frontend:       %s\n' "$(curl -s -m 5 -o /dev/null -w '%{http_code}' "$NGINX_URL/")"
+printf 'live feed:      %s\n' "$(curl -s -m 5 "$BACKEND_URL/api/live/health" | python3 -I -c 'import json,sys; d=json.load(sys.stdin); print(d.get("feed",{}).get("state","?"))' 2>/dev/null || echo unknown)"
+echo
+echo "== disk / memory"
+df -h / "$STATE_DIR" "$BACKUP_DIR" 2>/dev/null | awk 'NR==1 || !seen[$1]++'
+free -h | head -n2
+echo
+echo "== last deploys (time, status, release, commit, note)"
+tail -n 5 "$HISTORY" 2>/dev/null || echo "(none)"
+echo
+echo "== latest backups"
+find "$BACKUP_DIR" -maxdepth 1 -name 'sahi-*.db.gz' -printf '%TY-%Tm-%Td %TH:%TM  %10s  %f\n' 2>/dev/null | sort -r | head -n 5

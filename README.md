@@ -14,7 +14,7 @@ Backend:
 ```
 cd backend
 python -m venv .venv
-.venv\Scripts\pip install -r requirements.txt
+.venv\Scripts\pip install --require-hashes --no-deps -r requirements.lock -r requirements-dev.lock
 copy .env.example .env      # set SECRET_KEY
 .venv\Scripts\uvicorn app.main:app --reload
 ```
@@ -24,7 +24,23 @@ cd frontend
 npm install
 npm run dev                 # http://localhost:5173 (proxies /api to :8000)
 ```
-Tests: `cd backend && .venv\Scripts\pytest` and `cd frontend && npm test`.
+Tests: `cd backend && .venv\Scripts\pytest` (or `-m unit` / `-m integration`), `.venv\Scripts\ruff check .`, and `cd frontend && npm test`.
+
+## Production (AWS EC2) and CI/CD
+
+Merging to `main` runs CI + security checks and deploys automatically to EC2 (release folders, verified database
+backup before every deploy, health-gated switch, automatic rollback). Start here:
+
+| Document | For |
+|---|---|
+| [docs/PRODUCTION_AUDIT.md](docs/PRODUCTION_AUDIT.md) | Architecture, risks found, what was built and why |
+| [docs/CI_CD_SETUP.md](docs/CI_CD_SETUP.md) | GitHub secrets, environments, branch protection, updating dependencies |
+| [docs/AWS_EC2_SETUP.md](docs/AWS_EC2_SETUP.md) | Preparing the server (and moving the old manual setup) |
+| [docs/DEPLOYMENT_GUIDE.md](docs/DEPLOYMENT_GUIDE.md) | How a deploy works, manual deploy, status, logs, monitoring |
+| [docs/ROLLBACK_GUIDE.md](docs/ROLLBACK_GUIDE.md) | Automatic and manual rollback |
+| [docs/DATABASE_BACKUP_RESTORE.md](docs/DATABASE_BACKUP_RESTORE.md) | SQLite backups, verification, restore |
+| [docs/PRODUCTION_SECURITY.md](docs/PRODUCTION_SECURITY.md) | Secrets, hardening, alerts, HTTPS |
+| [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) | When something breaks |
 
 ## Status
 

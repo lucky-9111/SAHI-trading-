@@ -75,7 +75,7 @@ def test_portfolio_separation_between_users(client):
 
 def test_multiple_independent_portfolios(client, auth):
     a = mk_account(client, auth, "Swing", "500000")
-    b = mk_account(client, auth, "Intraday", "200000")
+    mk_account(client, auth, "Intraday", "200000")
     client.post(f"/api/accounts/{a['id']}/deposit", json={"amount": "1000"}, headers=auth)
     bal = {x["name"]: Decimal(x["balance"]) for x in client.get("/api/accounts", headers=auth).json()}
     assert bal == {"Swing": Decimal("501000.00"), "Intraday": Decimal("200000.00")}

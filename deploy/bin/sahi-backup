@@ -1,0 +1,68 @@
+#!/usr/bin/env bash
+# sahi-backup [tag]          e.g. sahi-backup daily | sahi-backup pre-deploy-<release> | sahi-backup manual
+#
+# Verified online backup of the production SQLite database:
+#   SQLite backup API (consistent while the app runs) -> PRAGMA integrity_check -> gzip -> gzip -t -> sha256 file
+# Files: /var/backups/sahi/sahi-<UTC time>-<tag>.db.gz (+ .sha256), owned by sahi, mode 0640.
+# Retention: daily/manual backups older than BACKUP_RETENTION_DAYS (default 14) are deleted; the newest
+# BACKUP_KEEP_PREDEPLOY (default 10) pre-deploy backups are kept; pre-restore / legacy backups are never deleted
+# automatically. Optional off-server copy: set BACKUP_S3_URI in /etc/sahi/backup.env (needs the aws CLI and an
+# instance role allowed to s3:PutObject).
+set -Eeuo pipefail
+umask 027
+SAHI_TAG=backup
+# shellcheck source=sahi-common.sh
+source /usr/local/lib/sahi/sahi-common.sh
+
+TAG=${1:-manual}
+[[ $TAG =~ ^[A-Za-z0-9._-]{1,80}$ ]] || die "tag may contain letters, digits, . _ - only"
+
+if [[ $EUID -eq 0 ]]; then        # do the work as the app user so files keep the right owner
+  exec runuser -u "$APP_USER" -- "$0" "$TAG"
+fi
+[[ $(id -un) == "$APP_USER" ]] || die "run as root or as $APP_USER"
+
+BACKUP_RETENTION_DAYS=14
+BACKUP_KEEP_PREDEPLOY=10
+BACKUP_S3_URI=""
+# shellcheck disable=SC1091
+[[ -r /etc/sahi/backup.env ]] && source /etc/sahi/backup.env
+
+[[ -f $DB_FILE ]] || die "database $DB_FILE not found"
+exec 8>"$BACKUP_DIR/.backup.lock"
+flock -w 300 8 || die "another backup is still running"
+
+db_mb=$(( $(stat -c %s "$DB_FILE") / 1048576 + 1 ))
+free_mb=$(df -Pm "$BACKUP_DIR" | awk 'NR==2 {print $4}')
+(( free_mb > db_mb * 2 + 100 )) || die "not enough free space in $BACKUP_DIR (${free_mb} MB free, database ${db_mb} MB)"
+
+name="sahi-$(date -u +%Y%m%dT%H%M%SZ)-$TAG"
+tmp="$BACKUP_DIR/.$name.db.partial"
+trap 'rm -f "$tmp" "$tmp.gz"' EXIT
+
+result=$(python3 -I /usr/local/lib/sahi/sahi_sqlite.py backup "$DB_FILE" "$tmp") || die "backup verification failed: $result"
+gzip -6 "$tmp"
+gzip -t "$tmp.gz" || die "compressed backup is corrupt"
+mv "$tmp.gz" "$BACKUP_DIR/$name.db.gz"
+( cd "$BACKUP_DIR" && sha256sum "$name.db.gz" >"$name.db.gz.sha256" )
+chmod 0640 "$BACKUP_DIR/$name.db.gz" "$BACKUP_DIR/$name.db.gz.sha256"
+log "backup OK: $BACKUP_DIR/$name.db.gz $result"
+
+if [[ -n $BACKUP_S3_URI ]]; then
+  if command -v aws >/dev/null; then
+    aws s3 cp --only-show-errors "$BACKUP_DIR/$name.db.gz" "${BACKUP_S3_URI%/}/$name.db.gz" \
+      && aws s3 cp --only-show-errors "$BACKUP_DIR/$name.db.gz.sha256" "${BACKUP_S3_URI%/}/$name.db.gz.sha256" \
+      && log "copied to off-server storage" || warn "off-server copy failed (local backup is fine)"
+  else
+    warn "BACKUP_S3_URI is set but the aws CLI is not installed"
+  fi
+fi
+
+# retention
+find "$BACKUP_DIR" -maxdepth 1 -type f \( -name 'sahi-*-daily.db.gz*' -o -name 'sahi-*-manual.db.gz*' \) \
+  -mtime +"$BACKUP_RETENTION_DAYS" -print -delete | sed 's/^/  expired: /'
+mapfile -t pre < <(find "$BACKUP_DIR" -maxdepth 1 -type f -name 'sahi-*-pre-deploy-*.db.gz' | sort -r)
+for f in "${pre[@]:$BACKUP_KEEP_PREDEPLOY}"; do
+  rm -f -- "$f" "$f.sha256" && echo "  expired: $f"
+done
+exit 0

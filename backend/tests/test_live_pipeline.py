@@ -9,10 +9,10 @@ import pytest
 from sqlalchemy import func, select
 
 from app.database.session import SessionLocal
-from app.live import calendar, paper, repo, replay, runtime
+from app.live import calendar, paper, replay, runtime
 from app.live.pipeline import Pipeline
 from app.live.receiver import Receiver
-from app.live.strategy import Binding, Signal, Strategy, front_month, place_signal
+from app.live.strategy import Binding, Signal, Strategy, place_signal
 from app.live.tick import Tick
 from app.models import Order, Position, Trade, TradingAccount
 from app.models.live import LiveCandle, TradeLog
@@ -412,7 +412,7 @@ def test_stale_price_is_refused_when_the_feed_is_down(world, monkeypatch):
 
 
 def test_store_marks_stale_after_60s_only_while_open():
-    clock = runtime.Clock() if hasattr(runtime, "Clock") else None
+
     from app.live.core import Clock, LatestPriceStore
     c = Clock()
     s = LatestPriceStore(c)
@@ -518,7 +518,6 @@ def test_payloads_carry_the_token_the_screens_need_for_live_prices(client, world
     assert p["token"] == "2885" and p["exchange"] == "NSE" and D(p["entry_value"]) == D("1000.00")
     d = client.get(f"/api/accounts/{world['acc']}/dashboard", headers=h).json()
     assert d["open_positions"][0]["token"] == "2885" and d["open_positions"][0]["entry_value"] == "1000.00"
-    from app.live.tick import Tick as T
     monkeypatch.setattr(pricing, "get_quotes", lambda specs, ttl=10: {})
     from app.market_data import instrument_master as im
     with SessionLocal() as db:

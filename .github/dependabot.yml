@@ -1,0 +1,21 @@
+# Dependabot opens pull requests; nothing is merged or deployed automatically. Every PR runs CI + security,
+# and a human merges it. Python packages are updated by regenerating the hash-pinned lock instead
+# (docs/CI_CD_SETUP.md -> "Updating dependencies"); the weekly pip-audit run flags vulnerable versions.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns: ["*"]
+
+  - package-ecosystem: npm
+    directory: /frontend
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      frontend-minor-patch:
+        update-types: [minor, patch]
