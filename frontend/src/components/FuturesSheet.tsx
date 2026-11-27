@@ -15,7 +15,8 @@ export function futureName(underlying: string, expiry: string): string {
   return `${underlying} ${d} ${MONTHS[m - 1]} Fut`;
 }
 
-const signed = (v: number, digits = 2) => `${v > 0 ? "+" : v < 0 ? "−" : ""}${Math.abs(v).toFixed(digits)}`;
+const signed = (v: number, digits = 2) =>
+  `${v > 0 ? "+" : v < 0 ? "−" : ""}${Math.abs(v).toLocaleString("en-IN", { minimumFractionDigits: digits, maximumFractionDigits: digits })}`;
 
 /** Bottom sheet listing every live futures contract of an underlying: price, day change, open interest, premium to spot. */
 export default function FuturesSheet({ open, onClose, underlying, futures, spot, onPick }: {
@@ -56,12 +57,12 @@ export default function FuturesSheet({ open, onClose, underlying, futures, spot,
                   <div className="text-[14px] lg:text-[15px] text-muted">Open Interest</div>
                   <div className="text-[15px] lg:text-[16px] mt-1 tabular-nums">{f.oi ? f.oi.toLocaleString("en-IN") : "—"}</div>
                 </div>
-                <div className="text-right">
+                {spot != null && <div className="text-right">
                   <div className="text-[14px] lg:text-[15px] text-muted">Premium to spot</div>
                   <div className={`text-[15px] lg:text-[16px] mt-1 tabular-nums ${prem != null ? pnlClass(prem) : ""}`}>
                     {prem != null && spot ? `${signed(prem)} (${signed((prem / spot) * 100)}%)` : "—"}
                   </div>
-                </div>
+                </div>}
               </div>
             </button>
           );

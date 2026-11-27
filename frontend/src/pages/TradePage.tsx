@@ -9,7 +9,7 @@ import type { QuoteRow } from "../components/market";
 import OrderPanel from "../components/OrderPanel";
 import { openSearch } from "../components/search";
 import StrategyContext, { useSymbolContext } from "../components/StrategyContext";
-import { BackBar, Chip, EmptyState, Flash, Sheet, Tabs } from "../components/ui";
+import { BackBar, Chip, EmptyState, Flash, Sheet } from "../components/ui";
 import { useAuth } from "../contexts/AuthContext";
 import { ApiError, api } from "../services/api";
 import { changeText, pnlClass, price } from "../utils/format";
@@ -69,7 +69,8 @@ export default function TradePage() {
   const stockUrl = `/trade?symbol=${encodeURIComponent(symbol ?? "")}&exchange=${exchange}`;
   const { accounts } = useAuth();
   const isCommodity = exchange === "MCX";
-  const isIndex = !!symbol && (INDEX_NAMES.includes(symbol) || isCommodity);
+  const isIndexU = !!symbol && INDEX_NAMES.includes(symbol);   // NIFTY, BANKNIFTY... (not tradable itself)
+  const isStock = !!symbol && !isIndexU && !isCommodity;
 
   const [quote, setQuote] = useState<QuoteRow | null>(null);
   const [note, setNote] = useState("");
@@ -89,47 +90,48 @@ export default function TradePage() {
   useEffect(() => { if (symbol) pushRecent(symbol, exchange); }, [symbol, exchange]);
 
   const lines = useMemo<PriceLine[]>(() => {
-    if (!ctx || seg !== "equity") return [];
+    if (!ctx || seg !== "equity" || !isStock) return [];
     return ctx.positions.filter((p) => p.symbol === symbol).flatMap((p): PriceLine[] => [
       { price: Number(p.avg_price), color: "#2563eb", title: `${p.side === "BUY" ? "BUY" : "SELL"} ${p.quantity} · ${p.strategy}` },
       ...(p.stop_loss ? [{ price: Number(p.stop_loss), color: "#d33a3a", title: "SL", dashed: true }] : []),
       ...(p.target ? [{ price: Number(p.target), color: "#1a9a6b", title: "Target", dashed: true }] : []),
     ]);
-  }, [ctx, seg, symbol]);
+  }, [ctx, seg, symbol, isStock]);
 
   useEffect(() => {
-    if (!symbol || isIndex) return;
+    if (!symbol || !isStock) return;
     let stop = false;
     const load = () => api<QuoteRow>(`/api/market/quote/${symbol}?exchange=${exchange}`).then((q) => !stop && setQuote(q)).catch(() => {});
     setQuote(null); load();
     const t = setInterval(load, 15000);
     return () => { stop = true; clearInterval(t); };
-  }, [symbol, exchange, isIndex]);
+  }, [symbol, exchange, isStock]);
   const [liveQuote] = useLiveRows(quote ? [quote] : []);
 
   useEffect(() => {
     if (!symbol) return;
     let stop = false;
     setFno(null); setFnoError(""); setLeg(null); setChain(null); setFutSym(null); setExpiry(null);
-    setSeg(isIndex ? "futures" : "equity");
+    setSeg("equity");
     api<Fno>(`/api/derivatives/${symbol}/expiries`).then((d) => {
       if (stop) return;
       setFno(d);
       setFutSym(d.futures[0]?.symbol ?? null);
       setExpiry(d.option_expiries[0] ?? null);
-      if (isIndex) setSeg(d.futures.length ? "futures" : "options");
     }).catch((e) => { if (!stop && !(e instanceof ApiError && e.status === 404)) setFnoError(e.message); });
     return () => { stop = true; };
-  }, [symbol, isIndex]);
+  }, [symbol]);
 
-  // the URL decides the view of a stock page: its chart, one of its futures, or its option chain
+  // The URL decides the view: the chart itself, one of its futures (&fut=), or its option chain (&view=options).
+  // A commodity has no spot market: its page is its near-month future unless another contract is picked.
   useEffect(() => {
-    if (!fno || isIndex) return;
+    if (!fno) return;
     if (futParam && fno.futures.some((f) => f.symbol === futParam)) { setFutSym(futParam); setSeg("futures"); }
     else if (viewParam === "options" && fno.option_expiries.length) setSeg("options");
+    else if (isCommodity && fno.futures.length) { setFutSym(fno.futures[0].symbol); setSeg("futures"); }
     else setSeg("equity");
     setLeg(null);
-  }, [fno, futParam, viewParam, isIndex]);
+  }, [fno, futParam, viewParam, isCommodity]);
 
   useEffect(() => {
     if (!symbol || seg !== "options" || !expiry) return;
@@ -142,16 +144,17 @@ export default function TradePage() {
 
   const fut = fno?.futures.find((f) => f.symbol === futSym);
   const futLive = useLiveTick(fut?.exchange ?? "NFO", fut?.token);
-  // contract page: a stock's future opened from the Futures sheet (indices keep their own Futures tab)
-  const futureMode = !isIndex && !!futParam && !!fut && fut.symbol === futParam && seg === "futures";
+  // contract page: a future picked from the Futures sheet (or a commodity's near-month contract)
+  const futureMode = seg === "futures" && !!fut && (fut.symbol === futParam || (isCommodity && !futParam));
   const futLtp = futLive.fresh && futLive.tick ? futLive.tick.ltp : fut?.ltp != null ? Number(fut.ltp) : null;
   const futPrev = fut?.prev_close ? Number(fut.prev_close) : null;
   const futChange = futLtp != null && futPrev ? futLtp - futPrev : fut?.change != null ? Number(fut.change) : null;
   const futPct = futLtp != null && futPrev && futChange != null ? (futChange / futPrev) * 100 : fut?.pct != null ? Number(fut.pct) : null;
-  // a stock's future or option chain is a sub-view with its own URL (back button returns to the stock)
-  const stockSubView = !isIndex && (futureMode || seg === "options");
-  const openFuture = (f: Future) => nav(`${stockUrl}&fut=${encodeURIComponent(f.symbol)}`, { replace: stockSubView });
-  const openOptions = () => { if (seg !== "options") nav(`${stockUrl}&view=options`, { replace: stockSubView }); };
+  // a future or the option chain is a sub-view with its own URL; the underlying row leads back (not for commodities)
+  const subView = (futureMode && !isCommodity) || seg === "options";
+  const openFuture = (f: Future) => nav(`${stockUrl}&fut=${encodeURIComponent(f.symbol)}`, { replace: subView || !!futParam });
+  const openOptions = () => { if (seg !== "options") nav(`${stockUrl}&view=options`, { replace: subView }); };
+  const futLabel = (f: Future) => futureName(isCommodity ? displayName(fno?.underlying ?? symbol ?? "") : fno?.underlying ?? symbol ?? "", f.expiry);
 
   const addToWatchlist = async () => {
     try {
@@ -173,16 +176,13 @@ export default function TradePage() {
     );
   }
 
-  const chartSymbol = futureMode ? fut!.symbol : seg === "equity" || !fno ? symbol : fno.chart_symbol;
-  const chartExchange = futureMode ? fut!.exchange ?? "NFO" : seg === "equity" || !fno ? exchange : fno.chart_exchange;
-  const headPrice = futureMode ? futLtp : isIndex ? (isCommodity && futLive.fresh && futLive.tick ? futLive.tick.ltp : fno?.spot) : liveQuote?.ltp;
-  const tabs: { value: Seg; label: string }[] = [];
-  if (!isIndex) tabs.push({ value: "equity", label: "Chart" });
-  if (fno?.futures.length) tabs.push({ value: "futures", label: "Futures" });
-  if (fno?.option_expiries.length) tabs.push({ value: "options", label: "Options" });
+  // a stock charts itself; an index charts its spot index; a future (or a commodity) charts the contract
+  const chartSymbol = futureMode ? fut!.symbol : isStock && seg === "equity" ? symbol : fno?.chart_symbol ?? null;
+  const chartExchange = futureMode ? fut!.exchange ?? "NFO" : isStock && seg === "equity" ? exchange : fno?.chart_exchange ?? exchange;
+  const headPrice = futureMode ? futLtp : isStock ? liveQuote?.ltp : fno?.spot;
 
   const contract: Contract | null =
-    seg === "equity" ? { symbol, exchange, itype: "EQ", lot: 1, token: liveQuote?.token, pct: liveQuote?.pct, label: displayName(symbol) }
+    seg === "equity" && isStock ? { symbol, exchange, itype: "EQ", lot: 1, token: liveQuote?.token, pct: liveQuote?.pct, label: displayName(symbol) }
       : seg === "futures" && fut ? { symbol: fut.symbol, exchange: fut.exchange ?? "NFO", itype: "FUT", lot: fut.lot_size, token: fut.token, pct: fut.pct, label: fut.symbol }
         : seg === "options" && leg ? { symbol: leg.symbol, exchange: leg.exchange ?? "NFO", itype: "OPT", lot: leg.lot_size, token: leg.token, pct: leg.pct, label: leg.label }
           : null;
@@ -195,14 +195,14 @@ export default function TradePage() {
   const title = (
     <div className="min-w-0">
       <button onClick={() => openSearch()} className="text-[15.5px] lg:text-[26px] leading-tight lg:leading-normal underline underline-offset-4 decoration-1 truncate max-w-full text-left">
-        {futureMode && fno ? futureName(fno.underlying, fut!.expiry) : displayName(symbol)}
+        {futureMode && fno ? futLabel(fut!) : displayName(symbol)}
       </button>
       <div className="flex items-baseline gap-1.5 lg:gap-2 text-[17px] lg:text-[19px] whitespace-nowrap">
         <span className="font-medium"><Flash value={headPrice}>{headPrice != null ? price(headPrice) : "—"}</Flash></span>
         {futureMode
           ? futChange != null && <span className={`text-[15px] lg:text-[19px] ${pnlClass(futChange)}`}>{changeText(futChange.toFixed(2), futPct != null ? futPct.toFixed(2) : null)}</span>
-          : !isIndex && liveQuote && <span className={`text-[15px] lg:text-[19px] ${pnlClass(liveQuote.change ?? 0)}`}>{changeText(liveQuote.change, liveQuote.pct)}</span>}
-        <span className="text-muted text-[14px] lg:text-[15px] truncate">{isCommodity ? "MCX · near month" : isIndex ? "Index" : exchange}</span>
+          : isStock && liveQuote && <span className={`text-[15px] lg:text-[19px] ${pnlClass(liveQuote.change ?? 0)}`}>{changeText(liveQuote.change, liveQuote.pct)}</span>}
+        <span className="text-muted text-[14px] lg:text-[15px] truncate">{isCommodity ? "MCX" : futureMode ? "NSE" : isIndexU ? "Index" : exchange}</span>
       </div>
     </div>
   );
@@ -213,35 +213,37 @@ export default function TradePage() {
       <div className="lg:hidden">
         <BackBar title={title} right={<>
           <button aria-label="Search" className="h-10 w-10 grid place-items-center" onClick={() => openSearch()}><Search size={22} strokeWidth={1.7} /></button>
-          {!isIndex && <button aria-label="Add to watchlist" className="h-10 w-10 grid place-items-center" onClick={addToWatchlist}>{saved ? <BookmarkCheck size={22} /> : <Bookmark size={22} strokeWidth={1.7} />}</button>}
+          {isStock && <button aria-label="Add to watchlist" className="h-10 w-10 grid place-items-center" onClick={addToWatchlist}>{saved ? <BookmarkCheck size={22} /> : <Bookmark size={22} strokeWidth={1.7} />}</button>}
         </>} />
       </div>
       {/* desktop header */}
       <div className="hidden lg:flex items-end justify-between gap-4 mb-2">
         {title}
-        {!isIndex && <button className="btn-ghost" onClick={addToWatchlist}>{saved ? <BookmarkCheck size={17} /> : <Bookmark size={17} />} Watchlist</button>}
+        {isStock && <button className="btn-ghost" onClick={addToWatchlist}>{saved ? <BookmarkCheck size={17} /> : <Bookmark size={17} />} Watchlist</button>}
       </div>
       {note && <div role="status" className="mx-4 lg:mx-0 mb-2 rounded-2xl bg-buybg/70 px-4 py-2.5 text-[14px] lg:text-[15px] text-buy animate-fade">{note}</div>}
 
-      {tabs.length > 1 && isIndex && <Tabs value={seg} onChange={(s) => { setSeg(s); setLeg(null); }} items={tabs} />}
       {fnoError && <div role="alert" className="mx-4 lg:mx-0 mt-2 text-[13px] lg:text-[14px] text-down">{fnoError}</div>}
 
       <div className="lg:grid lg:grid-cols-[1fr_420px] lg:gap-6 lg:items-start lg:mt-5">
         <div className="min-w-0 space-y-5">
-          <div className="pt-3 lg:pt-0 lg:card lg:p-4"><ChartView key={chartSymbol + seg} symbol={chartSymbol} exchange={chartExchange} height={seg === "options" ? 300 : 420} lines={lines} /></div>
+          <div className="pt-3 lg:pt-0 lg:card lg:p-4">
+            {chartSymbol ? <ChartView key={chartSymbol + seg} symbol={chartSymbol} exchange={chartExchange} height={seg === "options" ? 300 : 420} lines={lines} />
+              : !fnoError && <div className="skeleton mx-4 lg:mx-0 h-[420px]" />}
+          </div>
 
-          {/* future / option chain of a stock: the stock itself, tap to go back to it */}
-          {stockSubView && (
+          {/* future / option chain: the underlying stock or index, tap to go back to it */}
+          {subView && (
             <button onClick={() => nav(stockUrl)} className="w-full flex items-center gap-3 px-4 lg:px-0 py-4 border-y border-line text-left active:bg-soft">
-              <span className="text-[16px] lg:text-[18px] font-medium flex-1 truncate">{symbol}</span>
-              <span className="text-[16px] lg:text-[17px] tabular-nums">{liveQuote?.ltp != null ? price(liveQuote.ltp) : "—"}</span>
-              {liveQuote && <span className={`text-[15px] lg:text-[16px] tabular-nums ${pnlClass(liveQuote.change ?? 0)}`}>{changeText(liveQuote.change, liveQuote.pct)}</span>}
+              <span className="text-[16px] lg:text-[18px] font-medium flex-1 truncate">{isIndexU ? displayName(symbol) : symbol}</span>
+              <span className="text-[16px] lg:text-[17px] tabular-nums">{isStock ? (liveQuote?.ltp != null ? price(liveQuote.ltp) : "—") : fno?.spot != null ? price(fno.spot) : "—"}</span>
+              {isStock && liveQuote && <span className={`text-[15px] lg:text-[16px] tabular-nums ${pnlClass(liveQuote.change ?? 0)}`}>{changeText(liveQuote.change, liveQuote.pct)}</span>}
               <ChevronRight size={20} className="text-muted shrink-0" />
             </button>
           )}
 
-          {/* tools under the chart (stocks with F&O) */}
-          {!isIndex && fno && (fno.futures.length > 0 || fno.option_expiries.length > 0) && (
+          {/* tools under the chart: every instrument with futures / options */}
+          {fno && (fno.futures.length > 0 || fno.option_expiries.length > 0) && (
             <div className="flex gap-3 overflow-x-auto no-scrollbar px-4 lg:px-0">
               {fno.futures.length > 0 && (
                 <button onClick={() => setFuturesOpen(true)} className="shrink-0 w-[78px] lg:w-[96px] rounded-[14px] lg:rounded-2xl bg-panel2 px-1.5 lg:px-2 py-2 lg:py-2.5 flex flex-col items-center gap-1 lg:gap-1.5 press active:brightness-95">
@@ -255,16 +257,6 @@ export default function TradePage() {
                   <span className="text-[12px] lg:text-[13.5px] leading-tight">Option Chain</span>
                 </button>
               )}
-            </div>
-          )}
-
-          {seg === "futures" && fno && !futureMode && (
-            <div className="px-4 lg:px-0 space-y-3">
-              <div className="text-[14px] lg:text-[15px] text-muted">Expiry</div>
-              <div className="flex gap-2.5 overflow-x-auto no-scrollbar">
-                {fno.futures.map((f) => <Chip key={f.symbol} on={f.symbol === futSym} onClick={() => setFutSym(f.symbol)}>{fmtDate(f.expiry)}</Chip>)}
-              </div>
-              {fut && <div className="text-[14px] lg:text-[15px] text-muted">{futureName(fno.underlying, fut.expiry)} · lot {fut.lot_size} · LTP <b className="text-ink font-medium"><Flash value={futLive.fresh && futLive.tick ? futLive.tick.ltp : fut.ltp}>{price(futLive.fresh && futLive.tick ? futLive.tick.ltp : fut.ltp)}</Flash></b></div>}
             </div>
           )}
 
@@ -285,7 +277,7 @@ export default function TradePage() {
 
         {/* desktop order panel */}
         <div className="hidden lg:block lg:sticky lg:top-[96px]">
-          {contract ? panel("BUY", false) : <div className="card p-6 text-[14px] lg:text-[15px] text-muted">Pick a call or put from the option chain to place an order.</div>}
+          {contract ? panel("BUY", false) : <div className="card p-6 text-[14px] lg:text-[15px] text-muted">{seg === "options" ? "Pick a call or put from the option chain to place an order." : "An index is traded through its futures and options: choose one below the chart."}</div>}
         </div>
       </div>
 
@@ -296,15 +288,12 @@ export default function TradePage() {
             <button className="btn py-3 lg:py-4 text-[16px] lg:text-[18px] text-white bg-buy" onClick={() => setSheet("BUY")}>Buy</button>
             <button className="btn py-3 lg:py-4 text-[16px] lg:text-[18px] text-white bg-sell" onClick={() => setSheet("SELL")}>Sell</button>
           </>
-        ) : <div className="col-span-2 text-center text-[14px] lg:text-[15px] text-muted py-3">Pick a strike from the option chain</div>}
+        ) : <div className="col-span-2 text-center text-[14px] lg:text-[15px] text-muted py-3">{seg === "options" ? "Pick a strike from the option chain" : "Choose a future or option below"}</div>}
       </div>
       {fno && (
-        <FuturesSheet open={futuresOpen} onClose={() => setFuturesOpen(false)} underlying={fno.underlying} futures={fno.futures}
-                      spot={liveQuote?.ltp ? Number(liveQuote.ltp) : fno.spot ? Number(fno.spot) : null}
-                      onPick={(f) => {
-                        setFuturesOpen(false); window.scrollTo({ top: 0, behavior: "smooth" });
-                        if (isIndex) { setFutSym(f.symbol); setSeg("futures"); setLeg(null); } else openFuture(f);
-                      }} />
+        <FuturesSheet open={futuresOpen} onClose={() => setFuturesOpen(false)} underlying={isCommodity ? displayName(fno.underlying) : fno.underlying} futures={fno.futures}
+                      spot={isCommodity ? null : isStock && liveQuote?.ltp ? Number(liveQuote.ltp) : fno.spot ? Number(fno.spot) : null}
+                      onPick={(f) => { setFuturesOpen(false); window.scrollTo({ top: 0, behavior: "smooth" }); openFuture(f); }} />
       )}
       <Sheet open={!!sheet && !!contract} onClose={() => setSheet(null)} label="Place order">
         {sheet && panel(sheet, true)}
