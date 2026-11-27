@@ -1,0 +1,66 @@
+#!/usr/bin/env bash
+# sahi-restore <backup.db.gz> --yes
+#
+# Emergency restore of the production SQLite database from a backup made by sahi-backup. Never run automatically.
+#   1. checksum (.sha256) + gzip test + integrity_check of the backup, before anything is stopped
+#   2. stop the backend (no writes during the swap)
+#   3. safety copy of the current database (verified backup if it is readable, raw file copy otherwise)
+#   4. install the restored file, remove the old -wal/-shm (an old WAL must never be replayed onto another file)
+#   5. start the backend and wait for readiness
+# Everything written after the backup was taken is lost (it stays in the safety copy from step 3).
+set -Eeuo pipefail
+umask 027
+SAHI_TAG=restore
+# shellcheck source=sahi-common.sh
+source /usr/local/lib/sahi/sahi-common.sh
+require_root
+
+SRC=${1:-}
+[[ -n $SRC && ${2:-} == --yes ]] || die "usage: sahi-restore <backup.db.gz> --yes   (list: ls -lt $BACKUP_DIR)"
+[[ -f $SRC ]] || die "backup file not found: $SRC"
+take_lock
+
+WORK=$(mktemp -d /var/tmp/sahi-restore.XXXXXX)
+chown "$APP_USER:$APP_USER" "$WORK"
+trap 'rm -rf "$WORK"' EXIT
+
+if [[ -f $SRC.sha256 ]]; then
+  ( cd "$(dirname "$SRC")" && sha256sum -c --quiet "$(basename "$SRC").sha256" ) || die "checksum does not match $SRC.sha256"
+else
+  warn "no .sha256 next to the backup; relying on gzip + integrity checks"
+fi
+gzip -t "$SRC" || die "backup is not a valid gzip file"
+gunzip -c "$SRC" >"$WORK/restore.db"
+chown "$APP_USER:$APP_USER" "$WORK/restore.db"
+check=$(runuser -u "$APP_USER" -- python3 -I /usr/local/lib/sahi/sahi_sqlite.py verify "$WORK/restore.db") \
+  || die "backup failed verification: $check"
+log "backup verified: $check"
+
+stop_service
+systemctl stop sahi-backup.timer 2>/dev/null || true
+
+stamp=$(date -u +%Y%m%dT%H%M%SZ)
+if [[ -f $DB_FILE ]]; then
+  if /usr/local/sbin/sahi-backup "pre-restore-$stamp"; then
+    log "safety backup of the current database done (tag pre-restore-$stamp)"
+  else
+    raw="$BACKUP_DIR/pre-restore-raw-$stamp"
+    mkdir -p "$raw"
+    cp -p "$DB_FILE"* "$raw"/
+    chown -R "$APP_USER:$APP_USER" "$raw"
+    warn "current database could not be backed up normally; raw copy kept in $raw"
+  fi
+fi
+
+install -o "$APP_USER" -g "$APP_USER" -m 0640 "$WORK/restore.db" "$STATE_DIR/.sahi.db.restoring"
+rm -f "$DB_FILE-wal" "$DB_FILE-shm"
+mv -f "$STATE_DIR/.sahi.db.restoring" "$DB_FILE"
+log "database replaced from $(basename "$SRC")"
+
+systemctl start sahi-backup.timer 2>/dev/null || true
+start_service
+if wait_ready 90; then
+  log "SUCCESS: backend is ready on the restored database"
+else
+  die "backend did not become ready after restore - see 'journalctl -u $SERVICE -n 100'. The pre-restore copy is in $BACKUP_DIR"
+fi

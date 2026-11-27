@@ -1,0 +1,48 @@
+#!/usr/bin/env bash
+# sahi-rollback [release-id]
+#
+# Switch the application code back to an earlier release that passed the health gate before (.deployed).
+# Without an argument: the newest good release older than the current one. With --list: show releases.
+# Code only - the SQLite database is NOT touched. Schema changes made by newer code are additive (new tables /
+# columns), which older code ignores. To restore data, use sahi-restore (docs/DATABASE_BACKUP_RESTORE.md).
+set -Eeuo pipefail
+SAHI_TAG=rollback
+# shellcheck source=sahi-common.sh
+source /usr/local/lib/sahi/sahi-common.sh
+require_root
+
+cur=$(current_release)
+if [[ ${1:-} == --list ]]; then
+  find "$RELEASES" -mindepth 1 -maxdepth 1 -type d -name '20*' | sort -r | while IFS= read -r d; do
+    state=staged; [[ -f $d/.deployed ]] && state=good; [[ -f $d/.failed ]] && state=FAILED
+    mark=" "; [[ $d == "$cur" ]] && mark="*"
+    printf '%s %-34s %-7s %s\n' "$mark" "$(basename "$d")" "$state" "$(cat "$d/REVISION" 2>/dev/null)"
+  done
+  exit 0
+fi
+
+take_lock
+if [[ -n ${1:-} ]]; then
+  [[ $1 =~ ^[0-9]{14}-[0-9a-f]{12}$ ]] || die "release id looks like 20261127093000-0123456789ab (see --list)"
+  target="$RELEASES/$1"
+  [[ -d $target ]] || die "release $1 not found (see --list)"
+  is_good_release "$target" || die "release $1 never passed the health gate; refusing"
+else
+  target=$(previous_good_release "$cur") || die "no earlier good release available"
+fi
+[[ $target != "$cur" ]] || die "release $(basename "$target") is already current"
+
+sha=$(tr -d '[:space:]' <"$target/REVISION")
+log "rolling back from $(basename "${cur:-none}") to $(basename "$target") (${sha:0:12})"
+stop_service
+switch_to "$target"
+sync_nginx "$target" || die "nginx configuration of $(basename "$target") is invalid; service left stopped"
+start_service
+if verify_running; then
+  printf '%s\n' "$sha" >"$APP_ROOT/DEPLOYED_REVISION"
+  history_add ROLLBACK "$(basename "$target")" "$sha" "manual rollback from $(basename "${cur:-none}")"
+  log "SUCCESS: $(basename "$target") is live"
+else
+  history_add ROLLBACK_FAILED "$(basename "$target")" "$sha" "unhealthy after manual rollback"
+  die "rollback target is unhealthy - see 'journalctl -u $SERVICE -n 100' and docs/TROUBLESHOOTING.md"
+fi

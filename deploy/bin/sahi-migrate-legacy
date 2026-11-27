@@ -1,0 +1,56 @@
+#!/usr/bin/env bash
+# sahi-migrate-legacy [legacy-dir]      (default legacy-dir: /opt/sahi/backend)
+#
+# ONE-TIME move from the original hand-made setup (service `sahi`, running as ubuntu from /opt/sahi/backend with
+# a relative SQLite path) to the release layout. Run by a human, once, after bootstrap.sh:
+#   1. find the legacy database from the legacy .env (DATABASE_URL), refuse if the new database already exists
+#   2. stop the legacy service            <- downtime starts here
+#   3. verified copy of the database into /var/lib/sahi/sahi.db (SQLite backup API, includes the WAL), plus a
+#      compressed copy in /var/backups/sahi tagged legacy-migration
+#   4. disable the legacy service and its nginx site (files are left in place, nothing is deleted)
+# Then run the deploy workflow (GitHub -> Actions -> Deploy -> Run workflow). Downtime ends when it finishes.
+# To undo before the first deploy: sudo systemctl enable --now sahi && sudo ln -s /etc/nginx/sites-available/sahi /etc/nginx/sites-enabled/sahi && sudo systemctl reload nginx
+set -Eeuo pipefail
+umask 027
+SAHI_TAG=migrate
+# shellcheck source=sahi-common.sh
+source /usr/local/lib/sahi/sahi-common.sh
+require_root
+take_lock
+
+LEGACY_DIR=${1:-/opt/sahi/backend}
+LEGACY_SERVICE=sahi
+[[ -d $LEGACY_DIR ]] || die "legacy directory $LEGACY_DIR not found"
+[[ ! -f $DB_FILE ]] || die "$DB_FILE already exists - migration was already done (nothing changed)"
+
+url=$(grep -E '^DATABASE_URL=' "$LEGACY_DIR/.env" 2>/dev/null | tail -n1 | cut -d= -f2- | tr -d '"'"'"'\r' || true)
+url=${url:-sqlite:///./agroup_trader.db}
+[[ $url == sqlite:///* ]] || die "legacy DATABASE_URL is not SQLite; migrate manually"
+path=${url#sqlite:///}
+[[ $path == /* ]] || path="$LEGACY_DIR/${path#./}"
+[[ -f $path ]] || die "legacy database not found at $path"
+log "legacy database: $path ($(du -h "$path" | cut -f1))"
+
+if systemctl is-active --quiet "$LEGACY_SERVICE"; then
+  log "stopping legacy service '$LEGACY_SERVICE' (downtime starts)"
+  systemctl stop "$LEGACY_SERVICE"
+fi
+
+tmp="$STATE_DIR/.sahi.db.migrating"
+rm -f "$tmp"
+# the legacy files belong to ubuntu; read them as root, write the copy, then hand it to the app user
+result=$(python3 -I /usr/local/lib/sahi/sahi_sqlite.py backup "$path" "$tmp") || { rm -f "$tmp"; die "copy failed verification: $result"; }
+chown "$APP_USER:$APP_USER" "$tmp"
+chmod 0640 "$tmp"
+mv "$tmp" "$DB_FILE"
+log "database copied and verified: $result"
+/usr/local/sbin/sahi-backup legacy-migration
+
+systemctl disable "$LEGACY_SERVICE" >/dev/null 2>&1 || true
+if [[ -L /etc/nginx/sites-enabled/sahi ]]; then
+  rm -f /etc/nginx/sites-enabled/sahi
+  nginx -t -q && systemctl reload nginx
+  log "legacy nginx site disabled (file kept in sites-available)"
+fi
+history_add MIGRATED legacy - "database moved from $path"
+log "DONE. The legacy files in $LEGACY_DIR are untouched. Now run the Deploy workflow on GitHub."

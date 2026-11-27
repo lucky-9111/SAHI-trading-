@@ -1,0 +1,156 @@
+#!/usr/bin/env bash
+# sahi-deploy <tarball> <commit-sha> <sha256-of-tarball>
+#
+# Installs one release built by CI. Installed to /usr/local/sbin by bootstrap.sh; the `deploy` user may run it
+# (and only it, sahi-rollback and sahi-status) through sudo.
+#
+#  1. preflight   lock, argument checks, legacy service check, database present, disk space
+#  2. stage       copy + checksum + safe extract into releases/<id>, REVISION must equal the commit, venv from the
+#                 hash-pinned lock (built as the unprivileged deploy user), byte-compile, smoke boot on a temp DB
+#  3. backup      verified SQLite backup (sahi-backup pre-deploy-<id>) - abort if it fails
+#  4. activate    stop service (graceful) -> switch `current` symlink -> nginx sync (nginx -t) -> start
+#  5. verify      readiness, service active and not restarting, nginx valid, SPA + asset + API through nginx
+#  6. on failure  automatic rollback to the previous good release (code only; the database is never restored
+#                 automatically), verify it, exit non-zero so the GitHub deployment is marked failed
+#
+# The live service is stopped only between steps 4 and 5: old and new backends never run together, so the
+# in-process price loop and Angel One websocket are never duplicated. Expected downtime: a few seconds.
+set -Eeuo pipefail
+umask 022
+SAHI_TAG=deploy
+# shellcheck source=sahi-common.sh
+source /usr/local/lib/sahi/sahi-common.sh
+
+require_root
+[[ $# -eq 3 ]] || die "usage: sahi-deploy <tarball> <commit-sha> <sha256>"
+TARBALL=$1 SHA=$2 SUM=$3
+[[ $SHA =~ ^[0-9a-f]{40}$ ]] || die "commit sha must be 40 lowercase hex characters"
+[[ $SUM =~ ^[0-9a-f]{64}$ ]] || die "sha256 must be 64 lowercase hex characters"
+[[ ! -L $TARBALL ]] || die "tarball must not be a symlink"
+REAL=$(realpath -e -- "$TARBALL") || die "tarball not found"
+[[ $REAL == "$INCOMING"/*.tar.gz && -f $REAL ]] || die "tarball must be a regular *.tar.gz file in $INCOMING"
+
+take_lock
+
+# ------------------------------------------------------------------ 1. preflight
+if systemctl list-unit-files sahi.service >/dev/null 2>&1 && systemctl is-active --quiet sahi.service; then
+  die "legacy 'sahi' service is still running; run 'sudo sahi-migrate-legacy' once first (docs/AWS_EC2_SETUP.md)"
+fi
+[[ -f $ENV_FILE ]] || die "$ENV_FILE missing (run bootstrap.sh)"
+if [[ ! -f $DB_FILE && ! -f $STATE_DIR/.allow-empty-db ]]; then
+  die "database $DB_FILE not found. Refusing to start on an empty database. If this is a brand-new install, run: sudo touch $STATE_DIR/.allow-empty-db"
+fi
+for d in "$APP_ROOT" "$BACKUP_DIR" /var/tmp; do
+  free_mb=$(df -Pm "$d" | awk 'NR==2 {print $4}')
+  (( free_mb > 1024 )) || die "less than 1 GB free on the filesystem holding $d (${free_mb} MB)"
+done
+command -v python3 >/dev/null || die "python3 not installed"
+command -v nginx >/dev/null || die "nginx not installed"
+
+ID="$(date -u +%Y%m%d%H%M%S)-${SHA:0:12}"
+NEW="$RELEASES/$ID"
+WORK=$(mktemp -d /var/tmp/sahi-deploy.XXXXXX)
+chmod 0711 "$WORK"      # traversable (for the smoke-test dir), not listable
+STAGED=""
+cleanup_stage() {
+  rm -rf "$WORK"
+  if [[ -z $STAGED && -d $NEW ]]; then rm -rf "$NEW"; log "removed incomplete release $ID"; fi
+}
+trap cleanup_stage EXIT
+log "deploying ${SHA:0:12} as release $ID"
+
+# ------------------------------------------------------------------ 2. stage
+cp -- "$REAL" "$WORK/release.tar.gz"             # root-owned copy: no swap between checksum and extract
+echo "$SUM  $WORK/release.tar.gz" | sha256sum -c --quiet - || die "checksum mismatch: tarball is not the one CI built"
+if tar -tzf "$WORK/release.tar.gz" | grep -Eq '(^/|(^|/)\.\.(/|$))'; then die "tarball contains unsafe paths"; fi
+mkdir -p "$RELEASES"
+mkdir "$NEW"
+tar -xzf "$WORK/release.tar.gz" -C "$NEW" --no-same-owner --no-same-permissions
+[[ -f $NEW/REVISION && $(tr -d '[:space:]' <"$NEW/REVISION") == "$SHA" ]] || die "REVISION in tarball does not match $SHA"
+for f in backend/app/main.py backend/requirements.lock frontend/dist/index.html deploy/nginx/sahi.conf; do
+  [[ -f $NEW/$f ]] || die "release is missing $f"
+done
+if find "$NEW" \( -name '.env' -o -name '*.db' -o -name '*.pem' -o -name '*.sqlite*' \) -print -quit | grep -q .; then
+  die "release contains a secret or database file; refusing"
+fi
+
+log "building virtualenv from hash-pinned requirements.lock"
+chown -R "$DEPLOY_USER:$DEPLOY_USER" "$NEW"
+runuser -u "$DEPLOY_USER" -- python3 -m venv "$NEW/venv"
+runuser -u "$DEPLOY_USER" -- env HOME="/home/$DEPLOY_USER" "$NEW/venv/bin/pip" install --quiet --no-input \
+  --disable-pip-version-check --require-hashes --no-deps --only-binary=:all: -r "$NEW/backend/requirements.lock" \
+  || die "dependency installation failed"
+runuser -u "$DEPLOY_USER" -- "$NEW/venv/bin/pip" check >/dev/null || die "pip check found broken requirements"
+runuser -u "$DEPLOY_USER" -- "$NEW/venv/bin/python" -m compileall -q "$NEW/backend/app" >/dev/null
+
+log "smoke boot of the staged release (temp database, feed off, engine off)"
+install -d -o "$DEPLOY_USER" -g "$DEPLOY_USER" -m 0700 "$WORK/smoke"
+runuser -u "$DEPLOY_USER" -- env TMPDIR="$WORK/smoke" bash "$NEW/deploy/bin/smoke-boot.sh" "$NEW/backend" "$NEW/venv/bin/python" \
+  || die "smoke boot failed; the live service was not touched"
+
+chown -R root:root "$NEW"
+chmod -R u=rwX,go=rX "$NEW"
+touch "$NEW/.staged"
+STAGED=1
+
+# ------------------------------------------------------------------ 3. backup
+if [[ -f $DB_FILE ]]; then
+  /usr/local/sbin/sahi-backup "pre-deploy-$ID" || die "pre-deploy database backup failed; the live service was not touched"
+else
+  warn "no database yet (new install); skipping pre-deploy backup"
+fi
+
+# ------------------------------------------------------------------ 4./5. activate + verify (rollback on failure)
+PREV=$(current_release)
+PREV_GOOD=""
+if [[ -n $PREV ]] && is_good_release "$PREV"; then PREV_GOOD=$PREV; else PREV_GOOD=$(previous_good_release "$NEW" || true); fi
+
+rollback() {
+  trap - ERR
+  set +e
+  warn "release $ID failed verification - rolling back"
+  touch "$NEW/.failed"
+  journalctl -u "$SERVICE" -n 40 --no-pager -o cat 2>/dev/null | sed 's/^/  journal: /' >&2
+  stop_service
+  restore_nginx
+  if [[ -z $PREV_GOOD ]]; then
+    history_add FAILED "$ID" "$SHA" "no previous good release; service left stopped"
+    die "deployment failed and there is no previous good release to roll back to. Service is stopped."
+  fi
+  switch_to "$PREV_GOOD"
+  sync_nginx "$PREV_GOOD"
+  start_service
+  if verify_running; then
+    history_add ROLLED_BACK "$ID" "$SHA" "restored $(basename "$PREV_GOOD")"
+    die "deployment of ${SHA:0:12} FAILED; rolled back to $(basename "$PREV_GOOD") (healthy). Database was not changed by the rollback."
+  fi
+  history_add ROLLBACK_FAILED "$ID" "$SHA" "previous release $(basename "$PREV_GOOD") also unhealthy"
+  die "deployment FAILED and the rollback to $(basename "$PREV_GOOD") is ALSO unhealthy - manual action required (docs/TROUBLESHOOTING.md)"
+}
+trap rollback ERR
+
+stop_service
+switch_to "$NEW"
+sync_nginx "$NEW" || false
+start_service
+verify_running || false
+trap - ERR
+
+touch "$NEW/.deployed"
+printf '%s\n' "$SHA" >"$APP_ROOT/DEPLOYED_REVISION"
+history_add DEPLOYED "$ID" "$SHA" "ok"
+rm -f -- "$REAL"
+[[ -n $NGINX_BACKUP && $NGINX_BACKUP != none ]] && rm -f "$NGINX_BACKUP"
+
+# prune: keep the newest $KEEP_RELEASES releases plus the current and the previous good one
+keep_cur=$(current_release)
+mapfile -t all < <(find "$RELEASES" -mindepth 1 -maxdepth 1 -type d -name '20*' | sort -r)
+for i in "${!all[@]}"; do
+  d=${all[$i]}
+  (( i < KEEP_RELEASES )) && continue
+  [[ $d == "$keep_cur" || $d == "$PREV_GOOD" ]] && continue
+  rm -rf -- "$d" && log "pruned old release $(basename "$d")"
+done
+find "$INCOMING" -maxdepth 1 -name '*.tar.gz' -mtime +2 -delete 2>/dev/null || true
+
+log "SUCCESS: ${SHA:0:12} is live as release $ID"

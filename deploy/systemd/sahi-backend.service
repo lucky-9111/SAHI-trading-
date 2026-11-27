@@ -1,0 +1,62 @@
+# SAHI Trading backend (FastAPI / uvicorn). Installed to /etc/systemd/system by bootstrap.sh.
+#
+# ONE worker on purpose: the price loop (app/trading/poller.py), the live market-data pipeline and the Angel One
+# websocket run inside this process. A second worker or a second copy would duplicate them. systemd guarantees a
+# single instance, and sahi-deploy stops the old process before starting the new one.
+[Unit]
+Description=SAHI Trading backend (FastAPI)
+Documentation=file:///opt/sahi/current/docs/DEPLOYMENT_GUIDE.md
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=300
+StartLimitBurst=10
+
+[Service]
+Type=exec
+User=sahi
+Group=sahi
+EnvironmentFile=/etc/sahi/sahi.env
+Environment=PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1
+# State (SQLite database, SmartAPI's ./logs folder) lives here, outside the release directories.
+WorkingDirectory=/var/lib/sahi
+ExecStart=/opt/sahi/current/venv/bin/python -m uvicorn app.main:app \
+    --app-dir /opt/sahi/current/backend \
+    --host 127.0.0.1 --port 8000 --workers 1 \
+    --proxy-headers --forwarded-allow-ips 127.0.0.1 \
+    --no-server-header --timeout-graceful-shutdown 20 --log-level info
+Restart=always
+RestartSec=5
+# Graceful stop: SIGTERM -> uvicorn finishes requests, the app's shutdown hook stops the feed and price loop.
+KillSignal=SIGTERM
+TimeoutStopSec=30
+TimeoutStartSec=120
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=sahi-backend
+
+# Hardening: read-only system, writable state dir only, no privilege escalation.
+UMask=0027
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/sahi
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+RestrictSUIDSGID=true
+RestrictRealtime=true
+RestrictNamespaces=true
+LockPersonality=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+CapabilityBoundingSet=
+AmbientCapabilities=
+SystemCallArchitectures=native
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target

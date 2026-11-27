@@ -30,3 +30,13 @@ def register(client, email="a@example.com", name="Trader"):
 @pytest.fixture()
 def auth(client):
     return register(client)
+
+
+INTEGRATION_FIXTURES = {"client", "auth", "world"}
+
+
+def pytest_collection_modifyitems(items):
+    """Every test is either `unit` or `integration` (uses the TestClient / database), so CI can run them separately."""
+    for item in items:
+        fixtures = set(getattr(item, "fixturenames", ()))
+        item.add_marker(pytest.mark.integration if fixtures & INTEGRATION_FIXTURES else pytest.mark.unit)

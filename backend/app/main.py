@@ -4,6 +4,9 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.trustedhost import TrustedHostMiddleware
+from fastapi.responses import JSONResponse
+from sqlalchemy import text
 
 import os
 import threading
@@ -55,9 +58,16 @@ async def lifespan(_: FastAPI):
 
 
 settings = get_settings()
-app = FastAPI(title=settings.app_name, version="0.1.0", lifespan=lifespan)
+_problems = settings.production_problems()
+if _problems:
+    raise RuntimeError("Refusing to start in production: " + "; ".join(_problems))
+
+# API docs are a development aid; production does not publish the schema.
+_docs = {} if not settings.is_production else {"docs_url": None, "redoc_url": None, "openapi_url": None}
+app = FastAPI(title=settings.app_name, version="0.1.0", lifespan=lifespan, **_docs)
 app.add_middleware(CORSMiddleware, allow_origins=settings.cors_list, allow_credentials=True,
                    allow_methods=["*"], allow_headers=["*"])
+app.add_middleware(TrustedHostMiddleware, allowed_hosts=settings.trusted_host_list)
 
 for r in (auth.router, accounts.router, dashboard.router, instruments.router, market.router, trading.router,
           trading.strategies_router, watchlists.router,
@@ -81,3 +91,21 @@ def live_health():
 @app.get("/api/health")
 def health():
     return {"status": "ok", "app": settings.app_name, "paper_trading_only": True}
+
+
+@app.get("/api/health/live")
+def health_live():
+    """Liveness: the process answers HTTP. No database, broker or internal details."""
+    return {"status": "ok"}
+
+
+@app.get("/api/health/ready")
+def health_ready():
+    """Readiness: the database answers a query. Used by deploy and monitoring; reveals nothing beyond ok/unavailable."""
+    try:
+        with engine.connect() as conn:
+            conn.execute(text("SELECT 1"))
+    except Exception:
+        logging.getLogger("app.health").exception("readiness check: database unavailable")
+        return JSONResponse({"status": "unavailable"}, status_code=503)
+    return {"status": "ok"}
