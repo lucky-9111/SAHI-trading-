@@ -148,7 +148,10 @@ export default function TradePage() {
   const futPrev = fut?.prev_close ? Number(fut.prev_close) : null;
   const futChange = futLtp != null && futPrev ? futLtp - futPrev : fut?.change != null ? Number(fut.change) : null;
   const futPct = futLtp != null && futPrev && futChange != null ? (futChange / futPrev) * 100 : fut?.pct != null ? Number(fut.pct) : null;
-  const openFuture = (f: Future) => nav(`${stockUrl}&fut=${encodeURIComponent(f.symbol)}`, { replace: futureMode });
+  // a stock's future or option chain is a sub-view with its own URL (back button returns to the stock)
+  const stockSubView = !isIndex && (futureMode || seg === "options");
+  const openFuture = (f: Future) => nav(`${stockUrl}&fut=${encodeURIComponent(f.symbol)}`, { replace: stockSubView });
+  const openOptions = () => { if (seg !== "options") nav(`${stockUrl}&view=options`, { replace: stockSubView }); };
 
   const addToWatchlist = async () => {
     try {
@@ -220,15 +223,15 @@ export default function TradePage() {
       </div>
       {note && <div role="status" className="mx-4 lg:mx-0 mb-2 rounded-2xl bg-buybg/70 px-4 py-2.5 text-[15px] text-buy animate-fade">{note}</div>}
 
-      {tabs.length > 1 && !futureMode && <Tabs value={seg} onChange={(s) => { setSeg(s); setLeg(null); }} items={tabs} />}
+      {tabs.length > 1 && isIndex && <Tabs value={seg} onChange={(s) => { setSeg(s); setLeg(null); }} items={tabs} />}
       {fnoError && <div role="alert" className="mx-4 lg:mx-0 mt-2 text-[14px] text-down">{fnoError}</div>}
 
       <div className="lg:grid lg:grid-cols-[1fr_420px] lg:gap-6 lg:items-start lg:mt-5">
         <div className="min-w-0 space-y-5">
           <div className="pt-3 lg:pt-0 lg:card lg:p-4"><ChartView key={chartSymbol + seg} symbol={chartSymbol} exchange={chartExchange} height={seg === "options" ? 300 : 420} lines={lines} /></div>
 
-          {/* contract page: the underlying stock, tap to go back to it */}
-          {futureMode && (
+          {/* future / option chain of a stock: the stock itself, tap to go back to it */}
+          {stockSubView && (
             <button onClick={() => nav(stockUrl)} className="w-full flex items-center gap-3 px-4 lg:px-0 py-4 border-y border-line text-left active:bg-soft">
               <span className="text-[18px] font-medium flex-1 truncate">{symbol}</span>
               <span className="text-[17px] tabular-nums">{liveQuote?.ltp != null ? price(liveQuote.ltp) : "—"}</span>
@@ -238,19 +241,18 @@ export default function TradePage() {
           )}
 
           {/* tools under the chart (stocks with F&O) */}
-          {(seg === "equity" || futureMode) && fno && (fno.futures.length > 0 || fno.option_expiries.length > 0) && (
+          {!isIndex && fno && (fno.futures.length > 0 || fno.option_expiries.length > 0) && (
             <div className="flex gap-3 overflow-x-auto no-scrollbar px-4 lg:px-0">
               {fno.futures.length > 0 && (
-                <button onClick={() => setFuturesOpen(true)} className="shrink-0 w-[150px] rounded-2xl bg-panel2 px-3 py-4 flex flex-col items-center gap-2 press active:brightness-95">
-                  <ChartLine size={30} strokeWidth={1.6} />
-                  <span className="text-[16px]">Futures</span>
+                <button onClick={() => setFuturesOpen(true)} className="shrink-0 w-[96px] rounded-2xl bg-panel2 px-2 py-2.5 flex flex-col items-center gap-1.5 press active:brightness-95">
+                  <ChartLine size={24} strokeWidth={1.6} />
+                  <span className="text-[13.5px] leading-tight">Futures</span>
                 </button>
               )}
               {fno.option_expiries.length > 0 && (
-                <button onClick={() => { if (futureMode) nav(`${stockUrl}&view=options`); else { setSeg("options"); setLeg(null); } window.scrollTo({ top: 0, behavior: "smooth" }); }}
-                        className="shrink-0 w-[150px] rounded-2xl bg-panel2 px-3 py-4 flex flex-col items-center gap-2 press active:brightness-95">
-                  <span className="h-[30px] w-[30px] rounded-lg bg-brand text-white grid place-items-center"><Link2 size={19} strokeWidth={2} /></span>
-                  <span className="text-[16px]">Option Chain</span>
+                <button onClick={() => { openOptions(); window.scrollTo({ top: 0, behavior: "smooth" }); }} className="shrink-0 w-[96px] rounded-2xl bg-panel2 px-2 py-2.5 flex flex-col items-center gap-1.5 press active:brightness-95">
+                  <span className="h-6 w-6 rounded-md bg-brand text-white grid place-items-center"><Link2 size={15} strokeWidth={2} /></span>
+                  <span className="text-[13.5px] leading-tight">Option Chain</span>
                 </button>
               )}
             </div>
