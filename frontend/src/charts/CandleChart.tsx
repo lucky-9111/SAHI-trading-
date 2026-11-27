@@ -1,5 +1,6 @@
 import {
-  CandlestickSeries, ColorType, createChart, HistogramSeries, LineSeries, type IChartApi, type ISeriesApi, type UTCTimestamp,
+  CandlestickSeries, ColorType, createChart, HistogramSeries, LineSeries,
+  type IChartApi, type IPriceLine, type ISeriesApi, type LogicalRange, type UTCTimestamp,
 } from "lightweight-charts";
 import { useEffect, useRef } from "react";
 import { bollinger, rsi } from "../utils/indicators";
@@ -32,6 +33,21 @@ export default function CandleChart({ candles, ma, height = 520, lines = [], sho
   const chartRef = useRef<IChartApi | null>(null);
   const seriesRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
   const lastRef = useRef<Candle | null>(null);
+  // The user's zoom/scroll survives rebuilds (indicator toggles). Only new candles (symbol/timeframe) re-fit the view.
+  const viewRef = useRef<{ candles: Candle[]; range: LogicalRange | null } | null>(null);
+  const priceLinesRef = useRef<IPriceLine[]>([]);
+  const linesRef = useRef(lines);
+  linesRef.current = lines;
+  // Parents often pass a new array with the same levels (e.g. positions polled every 10 s): compare by value.
+  const linesKey = JSON.stringify(lines);
+
+  const applyLines = (series: ISeriesApi<"Candlestick">, list: PriceLine[]) => {
+    priceLinesRef.current.forEach((pl) => series.removePriceLine(pl));
+    // Your own entry / stop-loss / target levels (with the strategy name on the entry line)
+    priceLinesRef.current = list.map((l) => series.createPriceLine({
+      price: l.price, color: l.color, lineWidth: 1, lineStyle: l.dashed ? 2 : 0, axisLabelVisible: true, title: l.title,
+    }));
+  };
 
   useEffect(() => {
     if (!el.current) return;
@@ -52,10 +68,8 @@ export default function CandleChart({ candles, ma, height = 520, lines = [], sho
     series.setData(candles.map((c) => ({ ...c, time: c.time as UTCTimestamp })));
     seriesRef.current = series;
     lastRef.current = candles.length ? { ...candles[candles.length - 1] } : null;
-    // Your own entry / stop-loss / target levels (with the strategy name on the entry line)
-    lines.forEach((l) => series.createPriceLine({
-      price: l.price, color: l.color, lineWidth: 1, lineStyle: l.dashed ? 2 : 0, axisLabelVisible: true, title: l.title,
-    }));
+    priceLinesRef.current = [];
+    applyLines(series, linesRef.current);
 
     const vol = chart.addSeries(HistogramSeries, { priceFormat: { type: "volume" }, priceScaleId: "vol" });
     chart.priceScale("vol").applyOptions({ scaleMargins: { top: 0.8, bottom: 0 } });
@@ -83,9 +97,19 @@ export default function CandleChart({ candles, ma, height = 520, lines = [], sho
       [{ price: 60, color: "#0b9d6c" }, { price: 50, color: "#94a3b8" }, { price: 40, color: "#d93636" }].forEach((l) =>
         pane.createPriceLine({ price: l.price, color: l.color, lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: "" }));
     }
-    chart.timeScale().fitContent();
-    return () => { chart.remove(); chartRef.current = null; };
-  }, [candles, ma, lines, showBB, showRSI]);
+    const prev = viewRef.current;
+    if (prev && prev.candles === candles && prev.range) chart.timeScale().setVisibleLogicalRange(prev.range);
+    else chart.timeScale().fitContent();
+    return () => {
+      viewRef.current = { candles, range: chart.timeScale().getVisibleLogicalRange() };
+      chart.remove(); chartRef.current = null; seriesRef.current = null; priceLinesRef.current = [];
+    };
+  }, [candles, ma, showBB, showRSI]);  // eslint-disable-line react-hooks/exhaustive-deps
+
+  // entry / SL / target lines change in place: no rebuild, zoom untouched
+  useEffect(() => {
+    if (seriesRef.current) applyLines(seriesRef.current, linesRef.current);
+  }, [linesKey]);  // eslint-disable-line react-hooks/exhaustive-deps
 
   // live price: update the last candle in place; on intraday timeframes open the next candle when its time has come (keeps the broker's alignment)
   useEffect(() => {
