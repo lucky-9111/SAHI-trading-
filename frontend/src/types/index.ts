@@ -15,7 +15,8 @@ export interface Dashboard {
     daily_risk_used: number;
   };
   recent_trades: { id: number; symbol: string; side: string; quantity: number; exit_price: string; net_pnl: string; exit_time: string }[];
-  open_positions: { id: number; symbol: string; side: string; quantity: number; avg_price: string; current_price: string | null; unrealized_pnl: string | null }[];
+  open_positions: { id: number; symbol: string; side: string; quantity: number; avg_price: string; current_price: string | null; unrealized_pnl: string | null;
+    exchange?: string; token?: string; entry_value?: string | null }[];
   has_trades: boolean;
   prices_available: boolean;
   orders_today: number;

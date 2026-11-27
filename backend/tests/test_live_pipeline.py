@@ -506,3 +506,25 @@ def test_pipeline_health_and_ui_drops_oldest_only():
     assert pl.bus.dropped_ui == 500
     h = pl.health()
     assert h["mode"] == "replay" and h["feed"]["state"] == "replay" and h["error_count"] == 0 and "queues" in h
+
+
+def test_payloads_carry_the_token_the_screens_need_for_live_prices(client, world, monkeypatch):
+    put_price("2885", "NSE", 100.0)
+    with SessionLocal() as db:
+        engine.place_order(db, acct_obj(db, world), db.get(Instrument, world["rel"]), side="BUY", order_type="MARKET", product="DELIVERY",
+                           quantity=10, limit_price=None, stop_loss=None, target=None, strategy_id=None, idempotency_key=None)
+    h = world["h"]
+    p = client.get(f"/api/accounts/{world['acc']}/positions", headers=h).json()[0]
+    assert p["token"] == "2885" and p["exchange"] == "NSE" and D(p["entry_value"]) == D("1000.00")
+    d = client.get(f"/api/accounts/{world['acc']}/dashboard", headers=h).json()
+    assert d["open_positions"][0]["token"] == "2885" and d["open_positions"][0]["entry_value"] == "1000.00"
+    from app.live.tick import Tick as T
+    monkeypatch.setattr(pricing, "get_quotes", lambda specs, ttl=10: {})
+    from app.market_data import instrument_master as im
+    with SessionLocal() as db:
+        im.sync_mcx(db, [{"exch_seg": "MCX", "instrumenttype": "FUTCOM", "name": "GOLD", "symbol": "GOLD04DEC26FUT", "token": "495213",
+                          "expiry": "04DEC2026", "lotsize": "1", "tick_size": "100"}], today=dt.date(2026, 11, 27))
+    item = client.get("/api/market/commodities", headers=h).json()["items"][0]
+    assert item["token"] == "495213" and item["feed_exchange"] == "MCX" and item["exchange"] == "MCX"
+    fno = client.get("/api/market/fno", headers=h).json()
+    assert isinstance(fno["indices"], list)

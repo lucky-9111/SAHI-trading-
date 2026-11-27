@@ -2,11 +2,20 @@ import { Link } from "react-router-dom";
 import { changeText, pnlClass, price } from "../utils/format";
 
 export interface QuoteRow {
-  symbol: string; exchange: string; instrument_id: number;
+  symbol: string; exchange: string; instrument_id: number; token?: string; feed_exchange?: string;
   ltp: string | null; prev_close: string | null; change: string | null; pct: string | null; volume: number | null;
 }
 export interface IndexRow {
-  key: string; name: string; exchange: string; ltp: string; change: string; pct: string; trend: string;
+  key: string; name: string; exchange: string; token?: string; prev_close?: string | null; ltp: string; change: string; pct: string; trend: string;
+}
+
+/** Same thresholds as the server's trend label, so a tile can follow the live % change. */
+export function trendLabel(pct: number): string {
+  if (pct >= 1.5) return "Strong uptrend"
+  if (pct >= 0.25) return "Uptrend"
+  if (pct <= -1.5) return "Strong downtrend"
+  if (pct <= -0.25) return "Downtrend"
+  return "Sideways"
 }
 
 export function IndexCard({ i, active, onClick }: { i: IndexRow; active?: boolean; onClick?: () => void }) {

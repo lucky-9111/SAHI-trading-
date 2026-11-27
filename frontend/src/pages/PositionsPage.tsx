@@ -1,8 +1,9 @@
 import { LineChart } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
-import { useOrdersChanged } from "../utils/liveSocket";
+import { useLiveLtps, useOrdersChanged } from "../utils/liveSocket";
+import { keyOfPosition, liveKpis, positionPnl } from "../utils/liveKpi";
 import { api } from "../services/api";
 import type { Dashboard } from "../types";
 import { inr, pnlClass } from "../utils/format";
@@ -12,11 +13,16 @@ export interface PositionRow {
   current_price: string | null; invested_amount: string; stop_loss: string | null; target: string | null;
   unrealized_pnl: string | null; pnl_pct: string | null; strategy: string; opened_at: string;
   instrument_type: string; lot_size: number; expiry: string | null; chart_symbol: string; chart_exchange: string;
+  exchange?: string; token?: string; entry_value?: string | null;
 }
 
-function Row({ p, accountId, onChange, setMsg }: {
-  p: PositionRow; accountId: number; onChange: () => void; setMsg: (m: { ok: boolean; text: string }) => void;
+function Row({ p, accountId, onChange, setMsg, ltp }: {
+  p: PositionRow; accountId: number; onChange: () => void; setMsg: (m: { ok: boolean; text: string }) => void; ltp?: number;
 }) {
+  // live price -> current price, unrealized P&L and % (same basis as the server); without a fresh tick the server's numbers stay
+  const pnl = positionPnl({ side: p.side, quantity: p.quantity, entry_value: p.entry_value, unrealized_pnl: p.unrealized_pnl }, ltp);
+  const cur = ltp != null ? String(ltp) : p.current_price;
+  const pct = pnl != null && Number(p.invested_amount) ? ((pnl / Number(p.invested_amount)) * 100).toFixed(2) : p.pnl_pct;
   const [qty, setQty] = useState("");
   const [sl, setSl] = useState(p.stop_loss ?? "");
   const [tg, setTg] = useState(p.target ?? "");
@@ -51,7 +57,7 @@ function Row({ p, accountId, onChange, setMsg }: {
       <td className={`td ${p.side === "BUY" ? "text-up" : "text-down"}`}>{p.side}</td>
       <td className="td text-right">{p.quantity}</td>
       <td className="td text-right">{inr(p.avg_price)}</td>
-      <td className="td text-right">{p.current_price ? inr(p.current_price) : "—"}</td>
+      <td className="td text-right">{cur ? inr(cur) : "—"}</td>
       <td className="td text-right">{inr(p.invested_amount)}</td>
       <td className="td text-right">
         {editing ? <input className="input !w-24 !py-1" type="number" step="0.05" value={sl} onChange={(e) => setSl(e.target.value)} /> : p.stop_loss ? inr(p.stop_loss) : "—"}
@@ -59,9 +65,9 @@ function Row({ p, accountId, onChange, setMsg }: {
       <td className="td text-right">
         {editing ? <input className="input !w-24 !py-1" type="number" step="0.05" value={tg} onChange={(e) => setTg(e.target.value)} /> : p.target ? inr(p.target) : "—"}
       </td>
-      <td className={`td text-right ${p.unrealized_pnl ? pnlClass(p.unrealized_pnl) : ""}`}>
-        {p.unrealized_pnl ? inr(p.unrealized_pnl, true) : "—"}
-        {p.pnl_pct && <div className="text-[11px]">{p.pnl_pct}%</div>}
+      <td className={`td text-right ${pnl != null ? pnlClass(pnl) : ""}`}>
+        {pnl != null ? inr(pnl, true) : "—"}
+        {pct && <div className="text-[11px]">{pct}%</div>}
       </td>
       <td className="td">
         <div className="flex gap-1 items-center justify-end">
@@ -101,22 +107,25 @@ export default function PositionsPage() {
     return () => clearInterval(t);
   }, [accountId, rows]);
 
+  const keys = useMemo(() => [...(rows ?? []), ...(dash?.open_positions ?? [])].map((p) => keyOfPosition({ exchange: p.exchange, token: p.token })).filter(Boolean), [rows, dash]);
+  const ltps = useLiveLtps(keys);
+  const kpi = dash ? liveKpis(dash, ltps) : null;
   if (!accountId) return <div className="text-muted">Create a portfolio first.</div>;
-  const total = (rows ?? []).reduce((a, r) => a + Number(r.unrealized_pnl ?? 0), 0);
+  const total = (rows ?? []).reduce((a, r) => a + (positionPnl({ side: r.side, quantity: r.quantity, entry_value: r.entry_value, unrealized_pnl: r.unrealized_pnl }, ltps[keyOfPosition({ exchange: r.exchange, token: r.token })]) ?? 0), 0);
   return (
     <div className="space-y-4">
       <h1 className="text-lg font-semibold">Portfolio</h1>
       {dash && (
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
           {[
-            ["Total virtual capital", inr(dash.capital.total_virtual_capital), ""],
-            ["Available balance", inr(dash.capital.available_balance), ""],
-            ["Invested capital", inr(dash.capital.invested_amount), ""],
+            ["Total virtual capital", inr(kpi!.totalCapital), ""],
+            ["Available balance", inr(kpi!.available), ""],
+            ["Invested capital", inr(kpi!.invested), ""],
             ["Open positions", String(dash.stats.open_positions), ""],
             ["Realized P&L", inr(dash.pnl.realized, true), pnlClass(dash.pnl.realized)],
-            ["Unrealized P&L", inr(dash.pnl.unrealized, true), pnlClass(dash.pnl.unrealized)],
-            ["Total P&L", inr(dash.pnl.total, true), pnlClass(dash.pnl.total)],
-            ["Total return", `${dash.pnl.return_pct.toFixed(2)}%`, pnlClass(dash.pnl.return_pct)],
+            ["Unrealized P&L", inr(kpi!.unrealized, true), pnlClass(kpi!.unrealized)],
+            ["Total P&L", inr(kpi!.total, true), pnlClass(kpi!.total)],
+            ["Total return", `${kpi!.returnPct.toFixed(2)}%`, pnlClass(kpi!.returnPct)],
           ].map(([label, value, cls]) => (
             <div key={label} className="panel px-4 py-3">
               <div className="text-xs text-muted">{label}</div>
@@ -139,7 +148,7 @@ export default function PositionsPage() {
             <th className="th text-right">SL</th><th className="th text-right">Target</th><th className="th text-right">P&amp;L</th>
             <th className="th text-right">Actions</th></tr></thead>
           <tbody>
-            {rows?.map((p) => <Row key={p.id} p={p} accountId={accountId} setMsg={setMsg}
+            {rows?.map((p) => <Row key={p.id} p={p} accountId={accountId} setMsg={setMsg} ltp={ltps[keyOfPosition({ exchange: p.exchange, token: p.token })]}
                                    onChange={() => { load(); refreshAccounts(); }} />)}
           </tbody>
         </table>

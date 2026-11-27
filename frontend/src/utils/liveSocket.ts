@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { api, tokenStore } from "../services/api";
 
 /** One WebSocket per browser tab to /ws/ticks. Screens subscribe to "EXCHANGE:TOKEN" keys; the server pushes at most ~4 updates per second per symbol,
@@ -99,6 +99,55 @@ export function useOrdersChanged(fn: () => void) {
   const ref = useRef(fn)
   ref.current = fn
   useEffect(() => live.onOrders(() => ref.current()), [])
+}
+
+/** Fresh pushed prices of many tokens at once: { "NSE:2885": 1394.5, ... }. Updates are batched to 4 per second so a busy screen stays light.
+ *  A token that is quiet for 20 s (or whose feed is down) is simply absent: the caller keeps the server's number, nothing is invented. */
+export function useLiveLtps(keys: string[]): Record<string, number> {
+  const [ltps, setLtps] = useState<Record<string, number>>({})
+  const joined = keys.join(",")
+  useEffect(() => {
+    setLtps({})
+    const list = joined ? joined.split(",") : []
+    if (!list.length) return
+    const want = new Set(list)
+    const pending = new Map<string, WsTick>()
+    for (const k of list) { const t = live.last.get(k); if (t) pending.set(k, t) }
+    const off = live.onTick((t) => { if (want.has(t.k)) pending.set(t.k, t) })
+    const un = live.subscribe(list)
+    const flush = () => {
+      const now = Date.now()
+      setLtps((cur) => {
+        const next: Record<string, number> = {}
+        for (const k of list) {
+          const t = pending.get(k)
+          if (t && t.state === "live" && now - t.at < 20000) next[k] = t.ltp
+        }
+        const same = Object.keys(next).length === Object.keys(cur).length && Object.keys(next).every((k) => cur[k] === next[k])
+        return same ? cur : next
+      })
+    }
+    flush()
+    const id = setInterval(flush, 250)
+    return () => { off(); un(); clearInterval(id) }
+  }, [joined])
+  return ltps
+}
+
+export interface LiveRow { exchange: string; feed_exchange?: string; token?: string; ltp: string | null; prev_close: string | null; change: string | null; pct: string | null }
+
+/** Overlay live prices on quote rows: ltp from the tick, change and % against the row's previous close. */
+export function useLiveRows<T extends LiveRow>(rows: T[]): T[] {
+  const keyOf = (r: T) => (r.token ? `${r.feed_exchange ?? r.exchange}:${r.token}` : "")
+  const keys = useMemo(() => rows.map(keyOf).filter(Boolean), [rows])
+  const ltps = useLiveLtps(keys)
+  return useMemo(() => rows.map((r) => {
+    const l = ltps[keyOf(r)]
+    const prev = Number(r.prev_close)
+    if (l == null || !prev) return r
+    const ch = l - prev
+    return { ...r, ltp: String(l), change: ch.toFixed(2), pct: ((ch / prev) * 100).toFixed(2) }
+  }), [rows, ltps])  // eslint-disable-line react-hooks/exhaustive-deps
 }
 
 interface TicksResponse { ticks: Record<string, { ltp: number; age: number; state: string }> }

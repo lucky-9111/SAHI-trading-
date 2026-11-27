@@ -62,7 +62,7 @@ def stock_rows(db: Session, symbols: list[str]) -> list[dict]:
     rows = []
     for i in ordered:
         q = quotes.get((i.exchange, i.token))
-        rows.append({"symbol": i.symbol, "exchange": i.exchange, "instrument_id": i.id,
+        rows.append({"symbol": i.symbol, "exchange": i.exchange, "token": i.token, "instrument_id": i.id,
                      **(quote_dict(q) if q else {"ltp": None, "prev_close": None, "change": None, "pct": None,
                                                   "volume": None})})
     return rows
@@ -84,7 +84,7 @@ def overview(_: User = Depends(current_user)):
     for key, name, ex, tok in INDICES:
         q = quotes.get((ex, tok))
         if q:
-            rows.append({"key": key, "name": name, "exchange": ex, **quote_dict(q),
+            rows.append({"key": key, "name": name, "exchange": ex, "token": tok, **quote_dict(q),
                          "trend": trend_label(float(q.pct))})
     return {"indices": rows, "market_open": pricing.is_market_open(),
             "as_of": datetime.now(pricing.IST).isoformat(), "status": angel.provider.status()}
@@ -131,7 +131,8 @@ def _future_rows(db: Session, pairs: list[tuple[str, Instrument]], link_exchange
     rows = []
     for u, f in pairs:
         q = quotes.get((f.exchange, f.token))
-        rows.append({"symbol": u, "exchange": link_exchange or f.exchange, "instrument_id": f.id, "contract": f.symbol,
+        rows.append({"symbol": u, "exchange": link_exchange or f.exchange, "feed_exchange": f.exchange, "token": f.token,
+                     "instrument_id": f.id, "contract": f.symbol,
                      "expiry": f.expiry.isoformat() if f.expiry else None, "lot_size": f.lot_size,
                      **(quote_dict(q) if q else empty)})
     return rows

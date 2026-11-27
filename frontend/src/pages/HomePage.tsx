@@ -1,12 +1,14 @@
-import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import ChartView from "../charts/ChartView";
 import CreateAccount from "../components/CreateAccount";
-import { ContractRow, IndexCard, StockRow, TrendTile, type ContractQuote, type IndexRow, type QuoteRow } from "../components/market";
+import { ContractRow, IndexCard, StockRow, TrendTile, trendLabel, type ContractQuote, type IndexRow, type QuoteRow } from "../components/market";
 import { useAuth } from "../contexts/AuthContext";
 import { api } from "../services/api";
 import type { Dashboard } from "../types";
 import { inr, pnlClass } from "../utils/format";
+import { keyOfPosition, liveKpis, type LiveKpis } from "../utils/liveKpi";
+import { useLiveLtps, useLiveRows, useOrdersChanged } from "../utils/liveSocket";
 
 const TABS = ["F&O", "Stocks", "Commodities", "IPO", "Research", "ETFs"] as const;
 type Tab = (typeof TABS)[number];
@@ -48,15 +50,17 @@ function ErrorNote({ text }: { text: string }) {
   );
 }
 
-function StocksTab({ dash }: { dash: Dashboard | null }) {
+function StocksTab({ dash, kpi }: { dash: Dashboard | null; kpi: LiveKpis | null }) {
   const overview = usePolled<{ indices: IndexRow[]; market_open: boolean }>("/api/market/overview", 15000);
   const popular = usePolled<{ items: QuoteRow[] }>("/api/market/lists/popular", 15000);
   const [chartKey, setChartKey] = useState("NIFTY50");
   const [view, setView] = useState<"popular" | "gainers" | "losers">("popular");
 
-  const indices = overview.data?.indices ?? [];
+  const liveIdx = useLiveRows((overview.data?.indices ?? []).map((i) => ({ ...i, ltp: i.ltp as string | null, prev_close: i.prev_close ?? null, change: i.change as string | null, pct: i.pct as string | null })));
+  const indices: IndexRow[] = liveIdx.map((i) => ({ ...i, ltp: i.ltp ?? "", change: i.change ?? "", pct: i.pct ?? "", trend: trendLabel(Number(i.pct)) }));
   const chartIndex = indices.find((i) => i.key === chartKey) ?? indices[0];
-  let rows = (popular.data?.items ?? []).filter((r) => r.ltp !== null);
+  const livePopular = useLiveRows(popular.data?.items ?? []);
+  let rows = livePopular.filter((r) => r.ltp !== null);
   if (view !== "popular") {
     rows = [...rows].sort((a, b) => Number(b.pct) - Number(a.pct));
     if (view === "losers") rows.reverse();
@@ -87,7 +91,7 @@ function StocksTab({ dash }: { dash: Dashboard | null }) {
       {indices.length > 0 && (
         <section>
           <h2 className="font-semibold mb-1">Live Market Trends</h2>
-          <div className="text-xs text-muted mb-2">Based on today&apos;s change versus the previous close. Refreshes every 15 seconds.</div>
+          <div className="text-xs text-muted mb-2">Based on today&apos;s change versus the previous close. Moves with the live price.</div>
           <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-3">
             {indices.map((i) => <TrendTile key={i.key} i={i} />)}
           </div>
@@ -101,7 +105,7 @@ function StocksTab({ dash }: { dash: Dashboard | null }) {
             <div className="text-sm text-muted">Positions</div>
             <div className="text-lg font-semibold mt-1">{dash?.stats.open_positions ?? 0} open</div>
             {dash && dash.stats.open_positions > 0 && (
-              <div className={`text-sm ${pnlClass(dash.pnl.unrealized)}`}>{inr(dash.pnl.unrealized, true)} unrealized</div>
+              <div className={`text-sm ${pnlClass(kpi?.unrealized ?? dash.pnl.unrealized)}`}>{inr(kpi?.unrealized ?? dash.pnl.unrealized, true)} unrealized</div>
             )}
           </Link>
           <Link to="/order-book" className="panel p-4 hover:bg-soft">
@@ -144,7 +148,9 @@ function ContractList({ title, items, note }: { title: string; items: ContractQu
 }
 
 function CommoditiesTab() {
-  const d = usePolled<{ items: ContractQuote[]; market_open: boolean }>("/api/market/commodities", 15000);
+  const raw = usePolled<{ items: ContractQuote[]; market_open: boolean }>("/api/market/commodities", 15000);
+  const items = useLiveRows(raw.data?.items ?? []);
+  const d = { data: raw.data ? { ...raw.data, items } : null, error: raw.error };
   if (d.error && !d.data) return <ErrorNote text={d.error} />;
   if (!d.data) return <div className="text-sm text-muted py-6">Loading…</div>;
   return (
@@ -157,7 +163,10 @@ function CommoditiesTab() {
 }
 
 function FnoTab() {
-  const d = usePolled<{ indices: ContractQuote[]; stocks: ContractQuote[]; market_open: boolean }>("/api/market/fno", 15000);
+  const raw = usePolled<{ indices: ContractQuote[]; stocks: ContractQuote[]; market_open: boolean }>("/api/market/fno", 15000);
+  const indices = useLiveRows(raw.data?.indices ?? []);
+  const stocks = useLiveRows(raw.data?.stocks ?? []);
+  const d = { data: raw.data ? { ...raw.data, indices, stocks } : null, error: raw.error };
   if (d.error && !d.data) return <ErrorNote text={d.error} />;
   if (!d.data) return <div className="text-sm text-muted py-6">Loading…</div>;
   return (
@@ -169,7 +178,9 @@ function FnoTab() {
 }
 
 function EtfsTab() {
-  const etfs = usePolled<{ items: QuoteRow[] }>("/api/market/lists/etfs", 15000);
+  const etfsRaw = usePolled<{ items: QuoteRow[] }>("/api/market/lists/etfs", 15000);
+  const liveEtfs = useLiveRows(etfsRaw.data?.items ?? []);
+  const etfs = { data: etfsRaw.data ? { items: liveEtfs } : null, error: etfsRaw.error };
   return (
     <section className="panel p-4">
       <h2 className="font-semibold mb-1">Popular ETFs</h2>
@@ -189,6 +200,11 @@ export default function HomePage() {
     api<Dashboard>(`/api/accounts/${accountId}/dashboard`).then(setDash).catch(() => {});
   }, [accountId]);
   useEffect(() => { load(); const t = setInterval(load, 15000); return () => clearInterval(t); }, [load]);
+  useOrdersChanged(load);   // a fill / stop / target / square-off: refresh the KPI numbers now
+  // the KPI cards follow the live price of the open positions
+  const posKeys = useMemo(() => (dash?.open_positions ?? []).map(keyOfPosition).filter(Boolean), [dash]);
+  const ltps = useLiveLtps(posKeys);
+  const kpi = dash ? liveKpis(dash, ltps) : null;
 
   if (accounts.length === 0) {
     return (
@@ -203,10 +219,10 @@ export default function HomePage() {
     <div className="space-y-5 max-w-6xl">
       {dash && (
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-          <Stat label="Virtual capital" value={inr(dash.capital.total_virtual_capital)} />
-          <Stat label="Available balance" value={inr(dash.capital.available_balance)} />
-          <Stat label="Invested" value={inr(dash.capital.invested_amount)} />
-          <Stat label="Total P&L" value={inr(dash.pnl.total, true)} cls={pnlClass(dash.pnl.total)} />
+          <Stat label="Virtual capital" value={inr(kpi!.totalCapital)} />
+          <Stat label="Available balance" value={inr(kpi!.available)} />
+          <Stat label="Invested" value={inr(kpi!.invested)} />
+          <Stat label={`Total P&L${kpi!.allLive && dash.open_positions.length ? " ● live" : ""}`} value={inr(kpi!.total, true)} cls={pnlClass(kpi!.total)} />
         </div>
       )}
       <div className="flex gap-6 border-b border-line overflow-x-auto">
@@ -218,7 +234,7 @@ export default function HomePage() {
           </button>
         ))}
       </div>
-      {tab === "Stocks" && <StocksTab dash={dash} />}
+      {tab === "Stocks" && <StocksTab dash={dash} kpi={kpi} />}
       {tab === "ETFs" && <EtfsTab />}
       {tab === "F&O" && <FnoTab />}
       {tab === "Commodities" && <CommoditiesTab />}

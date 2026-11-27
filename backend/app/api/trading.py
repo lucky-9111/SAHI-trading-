@@ -118,7 +118,8 @@ def position_out(db: Session, p: Position, with_price: bool = True) -> dict:
     avg = (p.entry_value / p.quantity).quantize(Decimal("0.01")) if p.quantity else None
     pct = (upnl / p.invested_amount * 100).quantize(Decimal("0.01")) if upnl is not None and p.invested_amount else None
     strat = db.get(Strategy, p.strategy_id) if p.strategy_id else None
-    return {"id": p.id, "symbol": inst.symbol, "exchange": inst.exchange, "side": p.side, "product": p.product,
+    return {"id": p.id, "symbol": inst.symbol, "exchange": inst.exchange, "token": inst.token, "entry_value": s(p.entry_value),
+            "side": p.side, "product": p.product,
             "instrument_type": inst.instrument_type, "lot_size": inst.lot_size, **chart_target(inst),
             "expiry": inst.expiry.isoformat() if inst.expiry else None,
             "quantity": p.quantity, "avg_price": s(avg), "current_price": s(cur),
