@@ -71,8 +71,9 @@ export default function CandleChart({ candles, ma, height = 520, lines = [], sho
       const r = rsi(candles.map((c) => c.close));
       const pane = chart.addSeries(LineSeries, { color: "#8b5cf6", lineWidth: 1, priceLineVisible: false, title: "RSI 14" }, 1);
       pane.setData(candles.flatMap((c, i) => (r[i] != null ? [{ time: c.time as UTCTimestamp, value: r[i]! }] : [])));
-      pane.createPriceLine({ price: 70, color: "#d93636", lineWidth: 1, lineStyle: 2, axisLabelVisible: false, title: "" });
-      pane.createPriceLine({ price: 30, color: "#0b9d6c", lineWidth: 1, lineStyle: 2, axisLabelVisible: false, title: "" });
+      // reference levels: 60 = bullish zone, 50 = midline, 40 = bearish zone
+      [{ price: 60, color: "#0b9d6c" }, { price: 50, color: "#94a3b8" }, { price: 40, color: "#d93636" }].forEach((l) =>
+        pane.createPriceLine({ price: l.price, color: l.color, lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: "" }));
     }
     chart.timeScale().fitContent();
     return () => { chart.remove(); chartRef.current = null; };
