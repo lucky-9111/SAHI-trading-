@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { api } from "../services/api";
+import { useLiveTick } from "../utils/useLiveTick";
 import CandleChart, { type Candle, type PriceLine } from "./CandleChart";
 
 const TIMEFRAMES = ["1m", "5m", "15m", "30m", "1h", "1d", "1w", "1M"] as const;
@@ -10,7 +11,8 @@ const MAS = [
   { period: 200, color: "#a855f7" },
 ];
 
-interface CandleResponse { candles: Candle[]; source: string; status: { state: string } }
+interface CandleResponse { candles: Candle[]; source: string; token?: string; exchange?: string; status: { state: string } }
+const TF_SECONDS: Record<string, number> = { "1m": 60, "5m": 300, "15m": 900, "30m": 1800, "1h": 3600 };
 
 export default function ChartView({ symbol, exchange, height = 520, title, lines }: {
   symbol: string; exchange: string; height?: number; title?: string; lines?: PriceLine[];
@@ -35,11 +37,14 @@ export default function ChartView({ symbol, exchange, height = 520, title, lines
 
   const activeMas = useMemo(() => MAS.filter((m) => maOn[m.period]), [maOn]);
   const last = data?.candles.at(-1);
+  const { tick, fresh, connected } = useLiveTick(data?.exchange, data?.token);
+  const liveText = fresh ? "LIVE" : connected === false ? "Feed connecting…" : tick ? "Last tick (market closed?)" : "Waiting for ticks…";
   return (
     <div className="space-y-2">
       <div className="flex flex-wrap items-center gap-3">
         <h2 className="text-lg font-semibold">{title ?? symbol} <span className="text-sm text-muted">{exchange}</span></h2>
-        {last && <span className="text-sm">Last close <b>{last.close.toFixed(2)}</b></span>}
+        {last && <span className="text-sm">{fresh ? "LTP" : "Last close"} <b>{(fresh && tick ? tick.ltp : last.close).toFixed(2)}</b></span>}
+        {data && <span className={`text-xs font-medium ${fresh ? "text-up" : "text-muted"}`} title="Prices pushed by Angel One over a websocket">● {liveText}</span>}
         <div className="flex-1" />
         <div className="flex gap-1">
           {TIMEFRAMES.map((t) => (
@@ -69,9 +74,9 @@ export default function ChartView({ symbol, exchange, height = 520, title, lines
             <p className="text-muted mt-1">{error}</p>
           </div>
         )}
-        {data && data.candles.length > 0 && <CandleChart candles={data.candles} ma={activeMas} height={height} lines={lines} showBB={showBB} showRSI={showRSI} />}
+        {data && data.candles.length > 0 && <CandleChart candles={data.candles} ma={activeMas} height={height} lines={lines} showBB={showBB} showRSI={showRSI} live={fresh && tick ? tick.ltp : null} tfSeconds={TF_SECONDS[tf]} />}
       </div>
-      {data && <div className="text-xs text-muted">Source: {data.source} · {data.status.state} · Times in IST · Historical candles</div>}
+      {data && <div className="text-xs text-muted">Source: {data.source} · {data.status.state} · Times in IST · Historical candles + live ticks</div>}
     </div>
   );
 }

@@ -1,5 +1,5 @@
 import {
-  CandlestickSeries, ColorType, createChart, HistogramSeries, LineSeries, type IChartApi, type UTCTimestamp,
+  CandlestickSeries, ColorType, createChart, HistogramSeries, LineSeries, type IChartApi, type ISeriesApi, type UTCTimestamp,
 } from "lightweight-charts";
 import { useEffect, useRef } from "react";
 import { bollinger, rsi } from "../utils/indicators";
@@ -20,12 +20,18 @@ export function sma(candles: Candle[], period: number): { time: UTCTimestamp; va
 
 export interface PriceLine { price: number; color: string; title: string; dashed?: boolean }
 
-export default function CandleChart({ candles, ma, height = 520, lines = [], showBB = false, showRSI = false }: {
+const IST_SHIFT = 19800; // candle times are IST wall-clock treated as UTC
+
+export default function CandleChart({ candles, ma, height = 520, lines = [], showBB = false, showRSI = false, live = null, tfSeconds }: {
   candles: Candle[]; ma: { period: number; color: string }[]; height?: number; lines?: PriceLine[];
   showBB?: boolean; showRSI?: boolean;
+  /** latest pushed price: moves the last candle (or opens the next one on an intraday timeframe) */
+  live?: number | null; tfSeconds?: number;
 }) {
   const el = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
+  const seriesRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
+  const lastRef = useRef<Candle | null>(null);
 
   useEffect(() => {
     if (!el.current) return;
@@ -44,6 +50,8 @@ export default function CandleChart({ candles, ma, height = 520, lines = [], sho
       wickUpColor: "#0b9d6c", wickDownColor: "#d93636",
     });
     series.setData(candles.map((c) => ({ ...c, time: c.time as UTCTimestamp })));
+    seriesRef.current = series;
+    lastRef.current = candles.length ? { ...candles[candles.length - 1] } : null;
     // Your own entry / stop-loss / target levels (with the strategy name on the entry line)
     lines.forEach((l) => series.createPriceLine({
       price: l.price, color: l.color, lineWidth: 1, lineStyle: l.dashed ? 2 : 0, axisLabelVisible: true, title: l.title,
@@ -78,6 +86,22 @@ export default function CandleChart({ candles, ma, height = 520, lines = [], sho
     chart.timeScale().fitContent();
     return () => { chart.remove(); chartRef.current = null; };
   }, [candles, ma, lines, showBB, showRSI]);
+
+  // live price: update the last candle in place; on intraday timeframes open the next candle when its time has come (keeps the broker's alignment)
+  useEffect(() => {
+    const s = seriesRef.current, last = lastRef.current;
+    if (!s || !last || live == null) return;
+    const nowIst = Math.floor(Date.now() / 1000) + IST_SHIFT;
+    let bar: Candle;
+    if (tfSeconds && nowIst >= last.time + tfSeconds) {
+      const k = Math.floor((nowIst - last.time) / tfSeconds);
+      bar = { time: last.time + k * tfSeconds, open: live, high: live, low: live, close: live, volume: 0 };
+    } else {
+      bar = { ...last, high: Math.max(last.high, live), low: Math.min(last.low, live), close: live };
+    }
+    lastRef.current = bar;
+    s.update({ time: bar.time as UTCTimestamp, open: bar.open, high: bar.high, low: bar.low, close: bar.close });
+  }, [live, tfSeconds]);
 
   return <div ref={el} className="w-full" style={{ height }} />;
 }

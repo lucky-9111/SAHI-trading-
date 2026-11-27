@@ -161,6 +161,21 @@ def fno(_: User = Depends(current_user), db: Session = Depends(get_db)):
             "market_open": pricing.is_market_open()}
 
 
+@router.get("/ticks")
+def ticks(s: str = Query(..., description="comma separated EXCHANGE:TOKEN, e.g. NSE:2885,MCX:575691"),
+          _: User = Depends(current_user)):
+    """Latest pushed price of each token, read from memory (no broker call). Following a token starts its live subscription."""
+    from app.market_data.live_feed import feed
+
+    specs = []
+    for part in s.split(",")[:60]:
+        ex, _, tok = part.partition(":")
+        if ex and tok.isalnum():
+            specs.append((ex.upper(), tok))
+    feed.ensure(specs)
+    return {"ticks": feed.get(specs), "feed": feed.status(), "as_of": datetime.now(pricing.IST).isoformat()}
+
+
 @router.get("/lists/{name}")
 def market_list(name: str, _: User = Depends(current_user), db: Session = Depends(get_db)):
     if name not in LISTS:
@@ -190,5 +205,5 @@ def candles(symbol: str, timeframe: str = Query("15m"), exchange: str = "NSE",
     except ProviderError as e:
         raise HTTPException(e.code, str(e))
     data = rows_to_candles(rows, rule)
-    return {"symbol": label, "exchange": ex, "timeframe": timeframe, "source": "Angel One SmartAPI",
+    return {"symbol": label, "exchange": ex, "token": token, "timeframe": timeframe, "source": "Angel One SmartAPI",
             "candles": [c.__dict__ for c in data], "status": angel.provider.status()}

@@ -3,6 +3,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useAuth } from "../contexts/AuthContext";
 import { api } from "../services/api";
 import { inr, pnlClass } from "../utils/format";
+import { uuid } from "../utils/uuid";
 
 interface Preview {
   ltp: string | null; market_open: boolean | null; entry_price: string | null; suggested_quantity: number | null;
@@ -86,7 +87,7 @@ export default function OrderPanel({ symbol, exchange, lotSize = 1, itype = "EQ"
   const [pvError, setPvError] = useState("");
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<{ ok: boolean; text: string } | null>(null);
-  const key = useRef(crypto.randomUUID());
+  const key = useRef(uuid());
   const lots = lotSize > 1;
   const buy = side === "BUY";
   const priced = orderType !== "MARKET";
@@ -140,7 +141,7 @@ export default function OrderPanel({ symbol, exchange, lotSize = 1, itype = "EQ"
       const r = await api<OrderResult>(`/api/accounts/${accountId}/orders`, {
         method: "POST", json: { ...body(), idempotency_key: key.current },
       });
-      key.current = crypto.randomUUID();
+      key.current = uuid();
       if (r.status === "EXECUTED") setResult({ ok: true, text: `${r.side} ${r.quantity} ${symbol} executed at ${inr(r.exec_price)}` });
       else if (r.status === "PENDING") setResult({ ok: true, text: `${orderType === "TRIGGER" ? "Trigger" : "Limit"} order #${r.id} is pending. It fills when the price reaches your ${orderType === "TRIGGER" ? "trigger" : "limit"}.` });
       else setResult({ ok: false, text: `Order rejected: ${r.reject_reason}` });
