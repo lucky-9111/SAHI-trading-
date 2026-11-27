@@ -31,6 +31,8 @@ def _silence_sdk_logs():
 
 MIN_CALL_GAP = 0.4  # seconds; SmartAPI historical endpoint is ~3 req/s
 SESSION_TTL = 6 * 3600
+CANDLE_TTL = 20.0  # seconds: the same chart opened twice (or by a re-render) must not cost two Angel calls
+RATE_RETRY_WAIT = 1.5
 
 
 class AngelProvider:
@@ -41,6 +43,7 @@ class AngelProvider:
         self._last_error: str | None = None
         self._last_ok: float | None = None
         self._lock = threading.Lock()
+        self._candle_cache: dict[tuple, tuple[float, list]] = {}
         self._factory = client_factory  # injectable for tests
 
     @staticmethod
@@ -100,10 +103,17 @@ class AngelProvider:
     def get_candles(self, exchange: str, token: str, interval: str, start: datetime, end: datetime) -> list[list]:
         params = {"exchange": exchange, "symboltoken": token, "interval": interval,
                   "fromdate": start.strftime("%Y-%m-%d %H:%M"), "todate": end.strftime("%Y-%m-%d %H:%M")}
+        key = tuple(params.values())
+        hit = self._candle_cache.get(key)
+        if hit and time.time() - hit[0] <= CANDLE_TTL:
+            return hit[1]
         res = self._request(lambda c: c.getCandleData(params))
         data = res.get("data") or []
         if not data:
             raise NoData("No candles returned for this range")
+        if len(self._candle_cache) > 200:
+            self._candle_cache.clear()
+        self._candle_cache[key] = (time.time(), data)
         return data
 
     def get_market_data(self, exchange_tokens: dict[str, list[str]]) -> list[dict]:
@@ -121,6 +131,13 @@ class AngelProvider:
         return Decimal(str(ltp))
 
     def _request(self, call) -> dict:
+        try:
+            return self._request_once(call)
+        except RateLimited:
+            time.sleep(RATE_RETRY_WAIT)  # Angel allows ~3 calls/s; one patient retry clears most bursts
+            return self._request_once(call)
+
+    def _request_once(self, call) -> dict:
         with self._lock:
             for attempt in (1, 2):
                 self._ensure()
