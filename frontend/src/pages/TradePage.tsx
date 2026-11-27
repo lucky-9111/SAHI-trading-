@@ -1,6 +1,6 @@
-import { Bookmark, BookmarkCheck, ChartLine, Link2, Search } from "lucide-react";
+import { Bookmark, BookmarkCheck, ChartLine, ChevronRight, Link2, Search } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import { useSearchParams } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import type { PriceLine } from "../charts/CandleChart";
 import ChartView from "../charts/ChartView";
 import { ChartArt } from "../components/art";
@@ -63,6 +63,10 @@ export default function TradePage() {
   const [params] = useSearchParams();
   const symbol = params.get("symbol");
   const exchange = params.get("exchange") ?? "NSE";
+  const futParam = params.get("fut");        // a futures contract of this stock picked from the Futures sheet
+  const viewParam = params.get("view");      // "options": open on the option chain
+  const nav = useNavigate();
+  const stockUrl = `/trade?symbol=${encodeURIComponent(symbol ?? "")}&exchange=${exchange}`;
   const { accounts } = useAuth();
   const isCommodity = exchange === "MCX";
   const isIndex = !!symbol && (INDEX_NAMES.includes(symbol) || isCommodity);
@@ -118,6 +122,15 @@ export default function TradePage() {
     return () => { stop = true; };
   }, [symbol, isIndex]);
 
+  // the URL decides the view of a stock page: its chart, one of its futures, or its option chain
+  useEffect(() => {
+    if (!fno || isIndex) return;
+    if (futParam && fno.futures.some((f) => f.symbol === futParam)) { setFutSym(futParam); setSeg("futures"); }
+    else if (viewParam === "options" && fno.option_expiries.length) setSeg("options");
+    else setSeg("equity");
+    setLeg(null);
+  }, [fno, futParam, viewParam, isIndex]);
+
   useEffect(() => {
     if (!symbol || seg !== "options" || !expiry) return;
     let stop = false;
@@ -129,6 +142,13 @@ export default function TradePage() {
 
   const fut = fno?.futures.find((f) => f.symbol === futSym);
   const futLive = useLiveTick(fut?.exchange ?? "NFO", fut?.token);
+  // contract page: a stock's future opened from the Futures sheet (indices keep their own Futures tab)
+  const futureMode = !isIndex && !!futParam && !!fut && fut.symbol === futParam && seg === "futures";
+  const futLtp = futLive.fresh && futLive.tick ? futLive.tick.ltp : fut?.ltp != null ? Number(fut.ltp) : null;
+  const futPrev = fut?.prev_close ? Number(fut.prev_close) : null;
+  const futChange = futLtp != null && futPrev ? futLtp - futPrev : fut?.change != null ? Number(fut.change) : null;
+  const futPct = futLtp != null && futPrev && futChange != null ? (futChange / futPrev) * 100 : fut?.pct != null ? Number(fut.pct) : null;
+  const openFuture = (f: Future) => nav(`${stockUrl}&fut=${encodeURIComponent(f.symbol)}`, { replace: futureMode });
 
   const addToWatchlist = async () => {
     try {
@@ -150,9 +170,9 @@ export default function TradePage() {
     );
   }
 
-  const chartSymbol = seg === "equity" || !fno ? symbol : fno.chart_symbol;
-  const chartExchange = seg === "equity" || !fno ? exchange : fno.chart_exchange;
-  const headPrice = isIndex ? (isCommodity && futLive.fresh && futLive.tick ? futLive.tick.ltp : fno?.spot) : liveQuote?.ltp;
+  const chartSymbol = futureMode ? fut!.symbol : seg === "equity" || !fno ? symbol : fno.chart_symbol;
+  const chartExchange = futureMode ? fut!.exchange ?? "NFO" : seg === "equity" || !fno ? exchange : fno.chart_exchange;
+  const headPrice = futureMode ? futLtp : isIndex ? (isCommodity && futLive.fresh && futLive.tick ? futLive.tick.ltp : fno?.spot) : liveQuote?.ltp;
   const tabs: { value: Seg; label: string }[] = [];
   if (!isIndex) tabs.push({ value: "equity", label: "Chart" });
   if (fno?.futures.length) tabs.push({ value: "futures", label: "Futures" });
@@ -171,10 +191,14 @@ export default function TradePage() {
 
   const title = (
     <div className="min-w-0">
-      <button onClick={() => openSearch()} className="text-[19px] lg:text-[26px] underline underline-offset-4 decoration-1 truncate max-w-full text-left">{displayName(symbol)}</button>
+      <button onClick={() => openSearch()} className="text-[19px] lg:text-[26px] underline underline-offset-4 decoration-1 truncate max-w-full text-left">
+        {futureMode && fno ? futureName(fno.underlying, fut!.expiry) : displayName(symbol)}
+      </button>
       <div className="flex items-baseline gap-2 text-[17px] lg:text-[19px]">
         <span className="font-medium"><Flash value={headPrice}>{headPrice != null ? price(headPrice) : "—"}</Flash></span>
-        {!isIndex && liveQuote && <span className={pnlClass(liveQuote.change ?? 0)}>{changeText(liveQuote.change, liveQuote.pct)}</span>}
+        {futureMode
+          ? futChange != null && <span className={pnlClass(futChange)}>{changeText(futChange.toFixed(2), futPct != null ? futPct.toFixed(2) : null)}</span>
+          : !isIndex && liveQuote && <span className={pnlClass(liveQuote.change ?? 0)}>{changeText(liveQuote.change, liveQuote.pct)}</span>}
         <span className="text-muted text-[15px]">{isCommodity ? "MCX · near month" : isIndex ? "Index" : exchange}</span>
       </div>
     </div>
@@ -196,15 +220,25 @@ export default function TradePage() {
       </div>
       {note && <div role="status" className="mx-4 lg:mx-0 mb-2 rounded-2xl bg-buybg/70 px-4 py-2.5 text-[15px] text-buy animate-fade">{note}</div>}
 
-      {tabs.length > 1 && <Tabs value={seg} onChange={(s) => { setSeg(s); setLeg(null); }} items={tabs} />}
+      {tabs.length > 1 && !futureMode && <Tabs value={seg} onChange={(s) => { setSeg(s); setLeg(null); }} items={tabs} />}
       {fnoError && <div role="alert" className="mx-4 lg:mx-0 mt-2 text-[14px] text-down">{fnoError}</div>}
 
       <div className="lg:grid lg:grid-cols-[1fr_420px] lg:gap-6 lg:items-start lg:mt-5">
         <div className="min-w-0 space-y-5">
           <div className="pt-3 lg:pt-0 lg:card lg:p-4"><ChartView key={chartSymbol + seg} symbol={chartSymbol} exchange={chartExchange} height={seg === "options" ? 300 : 420} lines={lines} /></div>
 
+          {/* contract page: the underlying stock, tap to go back to it */}
+          {futureMode && (
+            <button onClick={() => nav(stockUrl)} className="w-full flex items-center gap-3 px-4 lg:px-0 py-4 border-y border-line text-left active:bg-soft">
+              <span className="text-[18px] font-medium flex-1 truncate">{symbol}</span>
+              <span className="text-[17px] tabular-nums">{liveQuote?.ltp != null ? price(liveQuote.ltp) : "—"}</span>
+              {liveQuote && <span className={`text-[16px] tabular-nums ${pnlClass(liveQuote.change ?? 0)}`}>{changeText(liveQuote.change, liveQuote.pct)}</span>}
+              <ChevronRight size={20} className="text-muted shrink-0" />
+            </button>
+          )}
+
           {/* tools under the chart (stocks with F&O) */}
-          {seg === "equity" && fno && (fno.futures.length > 0 || fno.option_expiries.length > 0) && (
+          {(seg === "equity" || futureMode) && fno && (fno.futures.length > 0 || fno.option_expiries.length > 0) && (
             <div className="flex gap-3 overflow-x-auto no-scrollbar px-4 lg:px-0">
               {fno.futures.length > 0 && (
                 <button onClick={() => setFuturesOpen(true)} className="shrink-0 w-[150px] rounded-2xl bg-panel2 px-3 py-4 flex flex-col items-center gap-2 press active:brightness-95">
@@ -213,7 +247,7 @@ export default function TradePage() {
                 </button>
               )}
               {fno.option_expiries.length > 0 && (
-                <button onClick={() => { setSeg("options"); setLeg(null); window.scrollTo({ top: 0, behavior: "smooth" }); }}
+                <button onClick={() => { if (futureMode) nav(`${stockUrl}&view=options`); else { setSeg("options"); setLeg(null); } window.scrollTo({ top: 0, behavior: "smooth" }); }}
                         className="shrink-0 w-[150px] rounded-2xl bg-panel2 px-3 py-4 flex flex-col items-center gap-2 press active:brightness-95">
                   <span className="h-[30px] w-[30px] rounded-lg bg-brand text-white grid place-items-center"><Link2 size={19} strokeWidth={2} /></span>
                   <span className="text-[16px]">Option Chain</span>
@@ -222,7 +256,7 @@ export default function TradePage() {
             </div>
           )}
 
-          {seg === "futures" && fno && (
+          {seg === "futures" && fno && !futureMode && (
             <div className="px-4 lg:px-0 space-y-3">
               <div className="text-[15px] text-muted">Expiry</div>
               <div className="flex gap-2.5 overflow-x-auto no-scrollbar">
@@ -264,8 +298,11 @@ export default function TradePage() {
       </div>
       {fno && (
         <FuturesSheet open={futuresOpen} onClose={() => setFuturesOpen(false)} underlying={fno.underlying} futures={fno.futures}
-                      spot={seg === "equity" && liveQuote?.ltp ? Number(liveQuote.ltp) : fno.spot ? Number(fno.spot) : null}
-                      onPick={(f) => { setFutSym(f.symbol); setSeg("futures"); setLeg(null); setFuturesOpen(false); window.scrollTo({ top: 0, behavior: "smooth" }); }} />
+                      spot={liveQuote?.ltp ? Number(liveQuote.ltp) : fno.spot ? Number(fno.spot) : null}
+                      onPick={(f) => {
+                        setFuturesOpen(false); window.scrollTo({ top: 0, behavior: "smooth" });
+                        if (isIndex) { setFutSym(f.symbol); setSeg("futures"); setLeg(null); } else openFuture(f);
+                      }} />
       )}
       <Sheet open={!!sheet && !!contract} onClose={() => setSheet(null)} label="Place order">
         {sheet && panel(sheet, true)}
