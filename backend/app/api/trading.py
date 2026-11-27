@@ -89,6 +89,8 @@ def chart_target(inst: Instrument) -> dict:
     """Where the 'Chart' button should open: the stock itself, or the underlying for an F&O contract."""
     if inst.instrument_type == "EQ":
         return {"chart_symbol": inst.symbol, "chart_exchange": inst.exchange}
+    if inst.exchange == "MCX":      # commodities have no spot index: chart the contract itself
+        return {"chart_symbol": inst.symbol, "chart_exchange": "MCX"}
     return {"chart_symbol": inst.underlying or inst.symbol, "chart_exchange": "NSE"}
 
 
@@ -190,7 +192,7 @@ def preview(body: OrderIn, acc: TradingAccount = Depends(owned_account), db: Ses
     if entry is not None and qty:
         value = q2(entry * qty)
         cash = required_cash(itype, body.side, entry, qty, inst.strike)
-        entry_ch = estimate_charges(body.product, body.side, value, itype)
+        entry_ch = estimate_charges(body.product, body.side, value, itype, inst.exchange)
         out.update(order_value=s(value), entry_charges=s(entry_ch), required_funds=s(cash + entry_ch))
         if cash + entry_ch > balance:
             errors.append("Insufficient virtual funds for this order")
@@ -203,7 +205,7 @@ def preview(body: OrderIn, acc: TradingAccount = Depends(owned_account), db: Ses
             reward_ps = abs(body.target - entry)
             gross = q2(reward_ps * qty)
             exit_leg = "SELL" if body.side == "BUY" else "BUY"
-            exit_ch = estimate_charges(body.product, exit_leg, q2(body.target * qty), itype)
+            exit_ch = estimate_charges(body.product, exit_leg, q2(body.target * qty), itype, inst.exchange)
             out.update(reward_per_share=s(reward_ps), potential_reward=s(gross),
                        estimated_net_reward=s(gross - entry_ch - exit_ch))
             if per_share:

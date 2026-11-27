@@ -109,6 +109,58 @@ def stock_rows_for(db: Session, symbol: str, exchange: str) -> dict:
             **(quote_dict(q) if q else {"ltp": None, "prev_close": None, "change": None, "pct": None, "volume": None})}
 
 
+def _nearest_futures(db: Session, underlyings: list[str], exchange: str) -> list[tuple[str, Instrument]]:
+    today = datetime.now(pricing.IST).date()
+    out = []
+    for u in underlyings:
+        f = db.scalar(select(Instrument).where(Instrument.exchange == exchange, Instrument.instrument_type == "FUT",
+                                               Instrument.underlying == u, Instrument.expiry >= today).order_by(Instrument.expiry))
+        if f:
+            out.append((u, f))
+    return out
+
+
+def _future_rows(db: Session, pairs: list[tuple[str, Instrument]], link_exchange: str | None = None) -> list[dict]:
+    if not pairs:
+        return []
+    try:
+        quotes = pricing.get_quotes([(f.exchange, f.token) for _, f in pairs])
+    except pricing.PriceUnavailable as e:
+        raise HTTPException(503, f"Market data unavailable: {e}")
+    empty = {"ltp": None, "prev_close": None, "change": None, "pct": None, "volume": None}
+    rows = []
+    for u, f in pairs:
+        q = quotes.get((f.exchange, f.token))
+        rows.append({"symbol": u, "exchange": link_exchange or f.exchange, "instrument_id": f.id, "contract": f.symbol,
+                     "expiry": f.expiry.isoformat() if f.expiry else None, "lot_size": f.lot_size,
+                     **(quote_dict(q) if q else empty)})
+    return rows
+
+
+@router.get("/commodities")
+def commodities(_: User = Depends(current_user), db: Session = Depends(get_db)):
+    """Nearest-expiry MCX future of every listed commodity, with its live quote."""
+    from app.market_data.instrument_master import MCX_UNDERLYINGS
+
+    order = ["GOLD", "GOLDM", "SILVER", "SILVERM", "CRUDEOIL", "CRUDEOILM", "NATURALGAS", "COPPER", "ZINC", "ALUMINIUM", "LEAD", "NICKEL"]
+    names = order + sorted(MCX_UNDERLYINGS - set(order))
+    return {"items": _future_rows(db, _nearest_futures(db, names, "MCX")),
+            "market_open": pricing.is_market_open(exchange="MCX")}
+
+
+FNO_INDEX = ["NIFTY", "BANKNIFTY", "FINNIFTY", "MIDCPNIFTY"]
+
+
+@router.get("/fno")
+def fno(_: User = Depends(current_user), db: Session = Depends(get_db)):
+    """Nearest-expiry futures of the four indices and the popular F&O stocks, with live quotes."""
+    stocks = [s for s in LISTS["popular"] if db.scalar(select(Instrument.id).where(
+        Instrument.exchange == "NFO", Instrument.instrument_type == "FUT", Instrument.underlying == s).limit(1))]
+    return {"indices": _future_rows(db, _nearest_futures(db, FNO_INDEX, "NFO"), "NSE"),
+            "stocks": _future_rows(db, _nearest_futures(db, stocks, "NFO"), "NSE"),
+            "market_open": pricing.is_market_open()}
+
+
 @router.get("/lists/{name}")
 def market_list(name: str, _: User = Depends(current_user), db: Session = Depends(get_db)):
     if name not in LISTS:
@@ -127,7 +179,7 @@ def candles(symbol: str, timeframe: str = Query("15m"), exchange: str = "NSE",
     else:
         inst = db.scalar(select(Instrument).where(
             Instrument.exchange == exchange.upper(), Instrument.symbol == symbol.upper(),
-            Instrument.instrument_type == "EQ"))
+            Instrument.instrument_type.in_(["EQ", "FUT"])))
         if not inst:
             raise HTTPException(404, "Unknown instrument")
         ex, token, label = inst.exchange, inst.token, inst.symbol

@@ -25,9 +25,18 @@ class PriceQuote:
     market_open: bool
 
 
-def is_market_open(now: datetime | None = None) -> bool:
-    now = now or datetime.now(IST)
-    return now.weekday() < 5 and dtime(9, 15) <= now.time() <= dtime(15, 30)
+SESSIONS = {"MCX": (dtime(9, 0), dtime(23, 30))}   # everything else trades 09:15-15:30
+DEFAULT_SESSION = (dtime(9, 15), dtime(15, 30))
+
+
+def session_hours(exchange: str = "NSE") -> tuple[dtime, dtime]:
+    return SESSIONS.get(exchange, DEFAULT_SESSION)
+
+
+def is_market_open(now: datetime | None = None, exchange: str = "NSE") -> bool:
+    now = (now or datetime.now(IST)).astimezone(IST)
+    start, end = session_hours(exchange)
+    return now.weekday() < 5 and start <= now.time() <= end
 
 
 @dataclass(frozen=True)
@@ -78,18 +87,19 @@ def get_quotes(specs: list[tuple[str, str]], ttl: float = QUOTE_TTL) -> dict[tup
     return out
 
 
-def session_close(now: datetime | None = None) -> datetime:
+def session_close(now: datetime | None = None, exchange: str = "NSE") -> datetime:
     """When a DAY order placed at `now` expires: the close (15:30 IST) of the current session if the market has not
     closed yet on a weekday, otherwise of the next weekday. (Exchange holidays are not known to the app.)"""
     from datetime import timedelta
 
     now = (now or datetime.now(IST)).astimezone(IST)
     day = now.date()
-    if now.weekday() >= 5 or now.time() > dtime(15, 30):
+    close = session_hours(exchange)[1]
+    if now.weekday() >= 5 or now.time() > close:
         day += timedelta(days=1)
         while day.weekday() >= 5:
             day += timedelta(days=1)
-    return datetime.combine(day, dtime(15, 30), tzinfo=IST)
+    return datetime.combine(day, close, tzinfo=IST)
 
 
 def get_price(instrument: Instrument, max_age: float = CACHE_TTL) -> PriceQuote:
@@ -103,6 +113,6 @@ def get_price(instrument: Instrument, max_age: float = CACHE_TTL) -> PriceQuote:
         raise PriceUnavailable(str(e)) from e
     if ltp <= 0:
         raise PriceUnavailable("Provider returned an invalid price")
-    quote = PriceQuote(ltp, datetime.now(IST), is_market_open())
+    quote = PriceQuote(ltp, datetime.now(IST), is_market_open(exchange=instrument.exchange))
     _cache[key] = (time.time(), quote)
     return quote

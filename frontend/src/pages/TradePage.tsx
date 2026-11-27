@@ -12,7 +12,7 @@ import { changeText, pnlClass, price } from "../utils/format";
 
 const INDEX_NAMES = ["NIFTY", "BANKNIFTY", "FINNIFTY", "MIDCPNIFTY"];
 
-interface Future { instrument_id: number; symbol: string; expiry: string; lot_size: number; ltp?: string; pct?: string }
+interface Future { instrument_id: number; symbol: string; exchange?: string; expiry: string; lot_size: number; ltp?: string; pct?: string }
 interface Fno {
   underlying: string; is_index: boolean; spot: string | null; chart_symbol: string; chart_exchange: string;
   lot_size: number; futures: Future[]; option_expiries: string[];
@@ -66,7 +66,9 @@ export default function TradePage() {
   const symbol = params.get("symbol");
   const exchange = params.get("exchange") ?? "NSE";
   const { accounts } = useAuth();
-  const isIndex = !!symbol && INDEX_NAMES.includes(symbol);
+  const isCommodity = exchange === "MCX";
+  // indices and commodities have no cash market of their own: they are traded through futures (and options for indices)
+  const isIndex = !!symbol && (INDEX_NAMES.includes(symbol) || isCommodity);
 
   const [quote, setQuote] = useState<QuoteRow | null>(null);
   const [note, setNote] = useState("");
@@ -158,13 +160,13 @@ export default function TradePage() {
       <div className="flex flex-wrap items-end gap-x-6 gap-y-1">
         <div>
           <h1 className="text-2xl font-semibold">{symbol}</h1>
-          <div className="text-xs text-muted">{isIndex ? "Index · trade via futures or options" : `${exchange} · Equity`}</div>
+          <div className="text-xs text-muted">{isCommodity ? "Commodity · MCX futures" : isIndex ? "Index · trade via futures or options" : `${exchange} · Equity`}</div>
         </div>
         {spot && (
           <div>
             <span className="text-2xl font-semibold">{price(spot)}</span>{" "}
             {!isIndex && seg === "equity" && quote && <span className={`text-sm ${pnlClass(quote.change ?? 0)}`}>{changeText(quote.change, quote.pct)}</span>}
-            {(isIndex || seg !== "equity") && <span className="text-xs text-muted">spot</span>}
+            {(isIndex || seg !== "equity") && <span className="text-xs text-muted">{isCommodity ? "near-month futures" : "spot"}</span>}
           </div>
         )}
         <div className="flex-1" />
@@ -205,7 +207,7 @@ export default function TradePage() {
                 <Chips items={fno.futures.map((f): [string, string] => [f.symbol, fmtDate(f.expiry)])} value={futSym ?? ""} onChange={setFutSym} />
                 {fut && <div className="text-xs text-muted">{fut.symbol} · lot {fut.lot_size}{fut.ltp ? ` · LTP ${price(fut.ltp)}` : ""}</div>}
               </div>
-              {fut && <OrderPanel key={fut.symbol} symbol={fut.symbol} exchange="NFO" lotSize={fut.lot_size} itype="FUT" pct={fut.pct} onDone={() => setCtxKey((k) => k + 1)} />}
+              {fut && <OrderPanel key={fut.symbol} symbol={fut.symbol} exchange={fut.exchange ?? "NFO"} lotSize={fut.lot_size} itype="FUT" pct={fut.pct} onDone={() => setCtxKey((k) => k + 1)} />}
             </>
           )}
           {seg === "options" && (leg

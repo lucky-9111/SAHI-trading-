@@ -21,6 +21,13 @@ CHAIN_WINDOW = 12  # strikes shown on each side of ATM
 
 def _spot(db: Session, underlying: str) -> dict:
     """Spot price + the chart symbol for an underlying. ltp is None when market data is unavailable."""
+    mcx = _contracts(db, underlying, "FUT", "MCX")
+    if mcx:   # commodity: its price is the nearest future; chart that contract
+        try:
+            q = pricing.get_quotes([(mcx[0].exchange, mcx[0].token)]).get((mcx[0].exchange, mcx[0].token))
+        except pricing.PriceUnavailable:
+            q = None
+        return {"ltp": str(q.ltp) if q else None, "chart_symbol": mcx[0].symbol, "chart_exchange": "MCX"}
     if underlying in INDEX_UNDERLYINGS:
         key = INDEX_UNDERLYINGS[underlying]
         _name, ex, tok = INDEX_BY_KEY[key]
@@ -39,11 +46,12 @@ def _spot(db: Session, underlying: str) -> dict:
     return {"ltp": str(q.ltp) if q else None, **chart}
 
 
-def _contracts(db: Session, underlying: str, itype: str) -> list[Instrument]:
+def _contracts(db: Session, underlying: str, itype: str, exchange: str | None = None) -> list[Instrument]:
     today = date.today()
-    return list(db.scalars(select(Instrument).where(
-        Instrument.underlying == underlying, Instrument.instrument_type == itype, Instrument.expiry >= today)
-        .order_by(Instrument.expiry, Instrument.strike, Instrument.option_type)))
+    q = select(Instrument).where(Instrument.underlying == underlying, Instrument.instrument_type == itype, Instrument.expiry >= today)
+    if exchange:
+        q = q.where(Instrument.exchange == exchange)
+    return list(db.scalars(q.order_by(Instrument.expiry, Instrument.strike, Instrument.option_type)))
 
 
 @router.get("/{underlying}/expiries")
@@ -64,7 +72,7 @@ def expiries(underlying: str, _: User = Depends(current_user), db: Session = Dep
         "underlying": u, "is_index": u in INDEX_UNDERLYINGS, "spot": sp["ltp"], "chart_symbol": sp["chart_symbol"],
         "chart_exchange": sp["chart_exchange"],
         "lot_size": (futs[0].lot_size if futs else _contracts(db, u, "OPT")[0].lot_size),
-        "futures": [{"instrument_id": f.id, "symbol": f.symbol, "expiry": f.expiry.isoformat(), "lot_size": f.lot_size,
+        "futures": [{"instrument_id": f.id, "symbol": f.symbol, "exchange": f.exchange, "expiry": f.expiry.isoformat(), "lot_size": f.lot_size,
                      **(quote_dict(quotes[(f.exchange, f.token)]) if (f.exchange, f.token) in quotes else {})}
                     for f in futs],
         "option_expiries": [e.isoformat() for e in opt_expiries],

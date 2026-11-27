@@ -65,12 +65,13 @@ def settle_expiring_positions(db: Session) -> list[str]:
     """On expiry day after 15:25 IST, close open F&O positions at the latest traded price (reason EXPIRY).
     This is an approximation: real expiry settlement uses an official settlement price this app does not have."""
     now = datetime.now(pricing.IST)
-    if now.hour * 60 + now.minute < 15 * 60 + 25 or not pricing.is_market_open(now):
-        return []
     events = []
     rows = db.execute(select(Position, Instrument).join(Instrument, Instrument.id == Position.instrument_id)
                       .where(Position.status == "OPEN", Instrument.expiry == now.date())).all()
     for pos, inst in rows:
+        close = pricing.session_hours(inst.exchange)[1]          # settle in the last 5 minutes of that exchange's session
+        if now.hour * 60 + now.minute < close.hour * 60 + close.minute - 5 or not pricing.is_market_open(now, inst.exchange):
+            continue
         try:
             quote = pricing.get_price(inst, max_age=0)
             exit_position(db, pos, None, quote.price, "EXPIRY")
@@ -135,7 +136,7 @@ def fill_order(db: Session, order: Order, price: Decimal) -> Order:
         price = q2(price)
         notional = q2(price * order.quantity)
         cash = required_cash(inst.instrument_type, order.side, price, order.quantity, inst.strike)
-        charges = estimate_charges(order.product, order.side, notional, inst.instrument_type)
+        charges = estimate_charges(order.product, order.side, notional, inst.instrument_type, inst.exchange)
         pos = open_position(db, order.account_id, order.instrument_id, order.product)
         if pos and pos.side != order.side:
             return _reject(db, order, "Opposite position is open. Exit it first")
@@ -208,7 +209,7 @@ def place_order(db: Session, account: TradingAccount, inst: Instrument, *, side:
         order = Order(account_id=account.id, instrument_id=inst.id, side=side, order_type=order_type,
                       product=product, quantity=quantity, limit_price=limit_price, stop_loss=stop_loss,
                       target=target, strategy_id=strategy_id, idempotency_key=idempotency_key, status="PENDING",
-                      validity=validity, expires_at=pricing.session_close().astimezone(timezone.utc) if validity == "DAY" else None)
+                      validity=validity, expires_at=pricing.session_close(exchange=inst.exchange).astimezone(timezone.utc) if validity == "DAY" else None)
         db.add(order)
         db.commit()
 
@@ -260,7 +261,7 @@ def exit_position(db: Session, pos: Position, quantity: int | None, price: Decim
         proceeds = q2(price * qty)
         gross = proceeds - released if pos.side == "BUY" else released - proceeds
         exit_leg = "SELL" if pos.side == "BUY" else "BUY"
-        exit_charges = estimate_charges(pos.product, exit_leg, proceeds, inst.instrument_type)
+        exit_charges = estimate_charges(pos.product, exit_leg, proceeds, inst.instrument_type, inst.exchange)
         credit = released_cash + gross - exit_charges
         try:
             acct.post_entry(db, account, "POSITION_EXIT", credit,

@@ -52,7 +52,11 @@ def search(q: str = Query(min_length=1, max_length=50), limit: int = Query(10, g
     # Index underlyings are tradable only through futures/options
     idx = [{"id": -n, "symbol": u, "name": None, "exchange": "NSE", "instrument_type": "IDX"}
            for n, u in enumerate(INDEX_UNDERLYINGS, 1) if len(term) >= 3 and u.startswith(term)]
-    return (idx + out)[:limit]
+    # MCX commodities (traded through their futures)
+    com = db.execute(select(Instrument.underlying).where(Instrument.exchange == "MCX", Instrument.instrument_type == "FUT",
+                                                         Instrument.underlying.like(f"%{term}%")).distinct().limit(limit)).scalars().all()
+    com = [{"id": -(1000 + n), "symbol": u, "name": None, "exchange": "MCX", "instrument_type": "COM"} for n, u in enumerate(sorted(com), 1)]
+    return (idx + com + out)[:limit]
 
 
 @router.get("/status")

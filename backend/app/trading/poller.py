@@ -19,14 +19,14 @@ def tick() -> int:
         n = engine.expire_orders(db)  # runs even when the market is closed
         if n:
             log.info("engine: %s day order(s) expired", n)
-    if not pricing.is_market_open():
-        return 0
     processed = 0
     with SessionLocal() as db:
         ids = set(db.scalars(select(Order.instrument_id).where(Order.status == "PENDING")).all())
         ids |= set(db.scalars(select(Position.instrument_id).where(Position.status == "OPEN")).all())
         for iid in ids:
             inst = db.get(Instrument, iid)
+            if not pricing.is_market_open(exchange=inst.exchange):
+                continue
             try:
                 quote = pricing.get_price(inst, max_age=0)
             except pricing.PriceUnavailable:

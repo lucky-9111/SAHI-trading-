@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import ChartView from "../charts/ChartView";
 import CreateAccount from "../components/CreateAccount";
-import { IndexCard, StockRow, TrendTile, type IndexRow, type QuoteRow } from "../components/market";
+import { ContractRow, IndexCard, StockRow, TrendTile, type ContractQuote, type IndexRow, type QuoteRow } from "../components/market";
 import { useAuth } from "../contexts/AuthContext";
 import { api } from "../services/api";
 import type { Dashboard } from "../types";
@@ -12,8 +12,6 @@ const TABS = ["F&O", "Stocks", "Commodities", "IPO", "Research", "ETFs"] as cons
 type Tab = (typeof TABS)[number];
 
 const UNSUPPORTED: Record<string, string> = {
-  "F&O": "Futures and options paper trading is not available yet. This app currently supports NSE equities only.",
-  Commodities: "Commodity (MCX) paper trading is not available yet. This app currently supports NSE equities only.",
   IPO: "IPO tracking is not available yet. There is no IPO data source connected.",
   Research: "Research content is not available yet. There is no research data source connected.",
 };
@@ -135,6 +133,41 @@ function StocksTab({ dash }: { dash: Dashboard | null }) {
   );
 }
 
+function ContractList({ title, items, note }: { title: string; items: ContractQuote[]; note?: string }) {
+  return (
+    <section className="panel p-4">
+      <h2 className="font-semibold mb-1">{title}</h2>
+      {items.map((r) => <ContractRow key={r.contract} r={r} />)}
+      {note && <div className="text-xs text-muted mt-2">{note}</div>}
+    </section>
+  );
+}
+
+function CommoditiesTab() {
+  const d = usePolled<{ items: ContractQuote[]; market_open: boolean }>("/api/market/commodities", 15000);
+  if (d.error && !d.data) return <ErrorNote text={d.error} />;
+  if (!d.data) return <div className="text-sm text-muted py-6">Loading…</div>;
+  return (
+    <div className="max-w-3xl space-y-2">
+      <div className="text-xs text-muted">MCX · {d.data.market_open ? "market open (09:00–23:30)" : "market closed (opens 09:00 on weekdays)"}</div>
+      <ContractList title="Commodity futures" items={d.data.items}
+                    note="Nearest-expiry contract of each commodity. Gold is quoted per 10 g, so its quantity is in units of 10 g (1 lot of GOLD = 100 units). Margin is an approximate fixed percentage." />
+    </div>
+  );
+}
+
+function FnoTab() {
+  const d = usePolled<{ indices: ContractQuote[]; stocks: ContractQuote[]; market_open: boolean }>("/api/market/fno", 15000);
+  if (d.error && !d.data) return <ErrorNote text={d.error} />;
+  if (!d.data) return <div className="text-sm text-muted py-6">Loading…</div>;
+  return (
+    <div className="grid lg:grid-cols-2 gap-4 max-w-5xl">
+      <ContractList title="Index futures" items={d.data.indices} note="Open an index to trade its futures or options chain." />
+      <ContractList title="Stock futures" items={d.data.stocks} />
+    </div>
+  );
+}
+
 function EtfsTab() {
   const etfs = usePolled<{ items: QuoteRow[] }>("/api/market/lists/etfs", 15000);
   return (
@@ -187,6 +220,8 @@ export default function HomePage() {
       </div>
       {tab === "Stocks" && <StocksTab dash={dash} />}
       {tab === "ETFs" && <EtfsTab />}
+      {tab === "F&O" && <FnoTab />}
+      {tab === "Commodities" && <CommoditiesTab />}
       {UNSUPPORTED[tab] && <div className="panel p-6 text-sm text-muted max-w-xl">{UNSUPPORTED[tab]}</div>}
     </div>
   );

@@ -91,10 +91,52 @@ def sync_derivatives(db: Session, rows: list[dict], today: date | None = None) -
     return n
 
 
+# MCX futures we list. MCX_LOT_OVERRIDE puts the quantity in the unit the price is quoted in, so price x quantity is always rupees:
+# GOLD is quoted per 10 g but its lot is 1 kg (= 100 units of 10 g); GOLDM lot 100 g = 10 units; GOLDTEN lot 10 g = 1 unit.
+MCX_UNDERLYINGS = {"GOLD", "GOLDM", "GOLDTEN", "GOLDGUINEA", "GOLDPETAL", "SILVER", "SILVERM", "SILVERMIC", "CRUDEOIL", "CRUDEOILM",
+                   "NATURALGAS", "NATGASMINI", "COPPER", "ZINC", "ZINCMINI", "LEAD", "LEADMINI", "ALUMINIUM", "ALUMINI", "NICKEL",
+                   "MENTHAOIL", "CARDAMOM", "COTTON"}
+MCX_LOT_OVERRIDE = {"GOLD": 100, "GOLDM": 10, "GOLDTEN": 1}
+
+
+def sync_mcx(db: Session, rows: list[dict], today: date | None = None) -> int:
+    """Upsert MCX commodity futures (no expired contracts) for the underlyings above."""
+    today = today or date.today()
+    existing = {(i.exchange, i.symbol, i.instrument_type): i
+                for i in db.scalars(select(Instrument).where(Instrument.exchange == "MCX"))}
+    n = 0
+    for r in rows:
+        if r.get("exch_seg") != "MCX" or r.get("instrumenttype") != "FUTCOM":
+            continue
+        und = str(r.get("name", "")).strip().upper()
+        if und not in MCX_UNDERLYINGS:
+            continue
+        try:
+            expiry = datetime.strptime(r["expiry"], "%d%b%Y").date()
+        except (KeyError, ValueError):
+            continue
+        if expiry < today:
+            continue
+        symbol = r["symbol"].strip()
+        key = ("MCX", symbol, "FUT")
+        inst = existing.get(key)
+        if inst is None:
+            inst = Instrument(exchange="MCX", symbol=symbol, instrument_type="FUT")
+            db.add(inst)
+            existing[key] = inst
+        inst.trading_symbol, inst.token, inst.underlying, inst.expiry = symbol, str(r["token"]), und, expiry
+        inst.lot_size = MCX_LOT_OVERRIDE.get(und, int(r.get("lotsize") or 1))
+        inst.tick_size = _tick(r)
+        n += 1
+    db.commit()
+    return n
+
+
 def needs_sync(db: Session) -> bool:
     eq = db.scalar(select(func.count()).select_from(Instrument).where(Instrument.instrument_type == "EQ")) or 0
     fut = db.scalar(select(func.count()).select_from(Instrument).where(Instrument.instrument_type == "FUT")) or 0
-    return eq == 0 or fut == 0
+    mcx = db.scalar(select(func.count()).select_from(Instrument).where(Instrument.exchange == "MCX")) or 0
+    return eq == 0 or fut == 0 or mcx == 0
 
 
 def count_instruments(db: Session) -> int:
@@ -109,5 +151,6 @@ def sync_from_provider() -> int:
     with SessionLocal() as db:
         n = sync_nse_equities(db, rows)
         d = sync_derivatives(db, rows)
-    log.info("Instrument master synced: %s NSE equities, %s F&O contracts", n, d)
-    return n + d
+        m = sync_mcx(db, rows)
+    log.info("Instrument master synced: %s NSE equities, %s F&O contracts, %s MCX futures", n, d, m)
+    return n + d + m

@@ -16,11 +16,16 @@ def q2(x: Decimal) -> Decimal:
     return Decimal(x).quantize(TWO, rounding=ROUND_HALF_UP)
 
 
-def estimate_charges(product: str, leg: str, turnover: Decimal, itype: str = "EQ") -> Decimal:
+def estimate_charges(product: str, leg: str, turnover: Decimal, itype: str = "EQ", exchange: str = "NSE") -> Decimal:
     """Charges for ONE leg. leg is the order side of that leg: 'BUY' or 'SELL'. turnover = price x quantity."""
     t = Decimal(turnover)
     sell = leg == "SELL"
-    if itype == "FUT":
+    if itype == "FUT" and exchange == "MCX":      # non-agri commodity futures: CTT 0.01% on the sell side
+        brokerage = min(Decimal(20), t * Decimal("0.0003"))
+        stt = t * Decimal("0.0001") if sell else Decimal(0)
+        exchange = t * Decimal("0.000021")
+        stamp = t * Decimal("0.00002") if not sell else Decimal(0)
+    elif itype == "FUT":
         brokerage = min(Decimal(20), t * Decimal("0.0003"))
         stt = t * Decimal("0.000125") if sell else Decimal(0)
         exchange = t * Decimal("0.0000183")

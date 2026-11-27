@@ -37,6 +37,24 @@ export function TrendTile({ i }: { i: IndexRow }) {
   );
 }
 
+export interface ContractQuote extends QuoteRow { contract: string; expiry: string | null; lot_size: number }
+
+/** A commodity / F&O underlying with its nearest future: links to the trade page of the underlying. */
+export function ContractRow({ r }: { r: ContractQuote }) {
+  return (
+    <div className="flex items-center justify-between py-3 border-b border-line last:border-0">
+      <Link to={`/trade?symbol=${r.symbol}&exchange=${r.exchange}`} className="flex-1 min-w-0 hover:opacity-70">
+        <div className="font-medium">{r.symbol}</div>
+        <div className="text-xs text-muted">{r.contract} · lot {r.lot_size}</div>
+      </Link>
+      <div className="text-right">
+        <div className="font-medium">{price(r.ltp)}</div>
+        <div className={`text-xs ${r.change ? pnlClass(r.change) : "text-muted"}`}>{changeText(r.change, r.pct)}</div>
+      </div>
+    </div>
+  );
+}
+
 export function StockRow({ r, action }: { r: QuoteRow; action?: React.ReactNode }) {
   return (
     <div className="flex items-center justify-between py-3 border-b border-line last:border-0">
