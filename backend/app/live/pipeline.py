@@ -100,7 +100,13 @@ class Pipeline:
 
     # ------------------------------------------------------------------ lifecycle
     async def start(self) -> None:
+        from app.live import logs
+
+        logs.configure()
         self._loop = asyncio.get_running_loop()
+        n = self.clock.now().astimezone(IST)                  # a restart after 08:30 / 08:50 must not repeat today's daily jobs
+        day = n.date().isoformat()
+        self._last["daily"] = day + "b" if n.time() >= dt.time(8, 50) else day + "a" if n.time() >= dt.time(8, 30) else ""
         await asyncio.to_thread(self.load_index)
         coros = [self._normalize_loop(), self._candle_loop(), self._orders_loop(), self._writer_loop(), self._strategy_loop()]
         if self.timers:
@@ -395,7 +401,7 @@ class Pipeline:
         anyopen = any(calendar.is_open(ex) for ex in {e for e, _ in (r._wanted if r else set())})
         if r is None or not r.connected:
             state = "reconnecting" if (r and r.reconnects) or (r and anyopen) else "closed"
-        elif anyopen and (newest is None or newest > 20):
+        elif anyopen and r._wanted and (newest is None or newest > 20):
             state = "stale"
         else:
             state = "connected"

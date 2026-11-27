@@ -154,3 +154,14 @@ def test_mcx_close_follows_us_dst():
 def test_next_close_rolls_over_weekend():
     nxt = calendar.next_close("NSE", ist(16, 0))                                  # Friday after the close
     assert nxt.astimezone(IST).date() == dt.date(2026, 11, 30) and nxt.astimezone(IST).time() == dt.time(15, 30)
+
+
+def test_json_log_line_has_stage_token_symbol():
+    import json
+    import logging
+
+    from app.live.logs import JsonFormatter
+    rec = logging.LogRecord("live", logging.INFO, "x.py", 1, "candle %s", ("closed",), None)
+    rec.token, rec.symbol, rec.stage = "2885", "RELIANCE", "candles"
+    d = json.loads(JsonFormatter().format(rec))
+    assert d["msg"] == "candle closed" and d["token"] == "2885" and d["symbol"] == "RELIANCE" and d["stage"] == "candles" and d["level"] == "INFO"
