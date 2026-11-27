@@ -45,7 +45,7 @@ def _render(db: Session, lists: list[Watchlist]) -> list[dict]:
             prices_ok = False
     empty = {"ltp": None, "prev_close": None, "change": None, "pct": None, "volume": None}
     return [{"id": w.id, "name": w.name, "prices_available": prices_ok,
-             "items": [{"instrument_id": i.id, "symbol": i.symbol, "exchange": i.exchange,
+             "items": [{"instrument_id": i.id, "symbol": i.symbol, "exchange": i.exchange, "token": i.token,
                         **(quote_dict(quotes[(i.exchange, i.token)]) if (i.exchange, i.token) in quotes else empty)}
                        for i in items[w.id]]} for w in lists]
 

@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useAuth } from "../contexts/AuthContext";
 import { api } from "../services/api";
-import { inr, pnlClass, price } from "../utils/format";
+import { inr, istTime, pnlClass, price } from "../utils/format";
 
 export interface CtxPosition {
   id: number; symbol: string; side: string; product: string; quantity: number; avg_price: string;
@@ -65,7 +65,7 @@ export default function StrategyContext({ ctx }: { ctx: SymbolContext | null }) 
               <Badge name={t.strategy} />
               <span>{t.side === "BUY" ? "Long" : "Short"} {t.quantity} · {price(t.entry_price)} → {price(t.exit_price)}</span>
               <span className={`font-medium ${pnlClass(t.net_pnl)}`}>{inr(t.net_pnl, true)}</span>
-              <span className="text-xs text-muted">{t.exit_reason.replace("_", " ").toLowerCase()} · {new Date(t.exit_time).toLocaleDateString("en-IN")}</span>
+              <span className="text-xs text-muted">{t.exit_reason.replace("_", " ").toLowerCase()} · {istTime(t.exit_time, { day: "2-digit", month: "short" })}</span>
             </div>
           ))}
         </div>

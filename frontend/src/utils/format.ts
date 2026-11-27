@@ -24,3 +24,11 @@ export function pnlClass(value: string | number): string {
   const n = Number(value);
   return n > 0 ? "text-up" : n < 0 ? "text-down" : "text-slate-500";
 }
+
+/** Server times are UTC; some arrive without an offset ("2026-11-27T08:34:10"). Read those as UTC, show them in IST. */
+export function parseTime(iso: string): Date {
+  return new Date(/[zZ]|[+-]\d\d:?\d\d$/.test(iso) ? iso : iso + "Z");
+}
+export function istTime(iso: string, opts: Intl.DateTimeFormatOptions): string {
+  return parseTime(iso).toLocaleString("en-IN", { timeZone: "Asia/Kolkata", ...opts });
+}

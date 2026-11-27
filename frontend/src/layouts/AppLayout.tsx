@@ -1,90 +1,121 @@
-import { Bell, IndianRupee, LogOut, Menu, Settings } from "lucide-react";
-import { useEffect, useState } from "react";
-import { Link, NavLink, Outlet } from "react-router-dom";
-import { Brand } from "../components/Brand";
-import StockSearch from "../components/StockSearch";
+import { BarChart3, BookOpen, FileText, History, IndianRupee, LogOut, ScanSearch, Search, Settings, User, Wallet } from "lucide-react";
+import { Link, NavLink, Outlet, useLocation, useSearchParams } from "react-router-dom";
+import { AppMark, HomeIcon, OrdersIcon, PortfolioIcon, TradeIcon, WatchIcon } from "../components/art";
+import SearchOverlay, { openSearch } from "../components/search";
 import { useAuth } from "../contexts/AuthContext";
-import { api } from "../services/api";
 import { inr } from "../utils/format";
 import { useFeedState } from "../utils/liveSocket";
-import { NAV } from "./nav";
 
-interface Feed { state: string; reason: string }
+export const TABS = [
+  { path: "/", label: "Home", Icon: HomeIcon },
+  { path: "/watchlist", label: "Watchlist", Icon: WatchIcon },
+  { path: "/trade", label: "Trade", Icon: TradeIcon },
+  { path: "/order-book", label: "Orders", Icon: OrdersIcon },
+  { path: "/positions", label: "Portfolio", Icon: PortfolioIcon },
+];
+const MORE = [
+  { path: "/trade-book", label: "Trade history", Icon: History },
+  { path: "/funds", label: "Funds", Icon: Wallet },
+  { path: "/analytics", label: "Analytics", Icon: BarChart3, soon: true },
+  { path: "/journal", label: "Trading journal", Icon: BookOpen, soon: true },
+  { path: "/reports", label: "Reports", Icon: FileText, soon: true },
+  { path: "/scanner-import", label: "Scanner import", Icon: ScanSearch, soon: true },
+  { path: "/settings", label: "Settings", Icon: Settings },
+];
 
-export default function AppLayout() {
-  const { user, accounts, accountId, setAccountId, logout } = useAuth();
-  const [collapsed, setCollapsed] = useState(false);
-  const [feed, setFeed] = useState<Feed | null>(null);
-  const acc = accounts.find((a) => a.id === accountId);
-
-  useEffect(() => {
-    const load = () => api<Feed>("/api/market/status").then(setFeed).catch(() => {});
-    load();
-    const t = setInterval(load, 30000);
-    return () => clearInterval(t);
-  }, []);
-
+function FeedDot() {
   const ws = useFeedState();
-  // the websocket's own report wins; the REST status only speaks while the socket is down
-  const label = ws === "connected" ? "LIVE" : ws === "stale" ? "STALE" : ws === "reconnecting" ? "RECONNECTING" : ws === "closed" ? "MARKET CLOSED" : ws === "replay" ? "REPLAY" : (feed?.state ?? "DISCONNECTED");
-  const dot = label === "LIVE" ? "bg-up" : label === "STALE" || label === "RECONNECTING" || label === "DELAYED" ? "bg-amber-400" : label === "REPLAY" ? "bg-blue-500" : "bg-slate-300";
+  const label = ws === "connected" ? "Live" : ws === "stale" ? "Stale" : ws === "reconnecting" || ws === "offline" ? "Connecting" : ws === "replay" ? "Replay" : "Market closed";
+  const dot = ws === "connected" ? "bg-up" : ws === "stale" || ws === "reconnecting" ? "bg-amber-400" : ws === "replay" ? "bg-blue-500" : "bg-faint";
+  return <span className="inline-flex items-center gap-2 text-[13px] text-muted"><span className={`h-2 w-2 rounded-full ${dot} ${ws === "connected" ? "animate-pulse" : ""}`} />{label}</span>;
+}
+
+/** Bottom navigation (phones) */
+function BottomNav() {
+  const { pathname } = useLocation();
   return (
-    <div className="h-full flex bg-bg">
-      <aside className={`${collapsed ? "w-[68px]" : "w-60"} shrink-0 border-r border-line bg-white flex flex-col transition-all`}>
-        <div className="h-16 px-4 flex items-center justify-between">
-          <Brand compact={collapsed} />
-          {!collapsed && (
-            <button aria-label="Toggle sidebar" className="text-muted hover:text-slate-900" onClick={() => setCollapsed(true)}>
-              <Menu size={18} />
-            </button>
-          )}
-        </div>
-        {collapsed && (
-          <button aria-label="Expand sidebar" className="mx-auto mb-1 text-muted hover:text-slate-900" onClick={() => setCollapsed(false)}>
-            <Menu size={18} />
-          </button>
-        )}
-        <nav className="flex-1 overflow-y-auto px-2 py-1 space-y-0.5">
-          {NAV.map(({ path, label, icon: Icon, phase }) => (
-            <NavLink key={path} to={path} end={path === "/"} title={label}
-              className={({ isActive }) =>
-                `flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm ${
-                  isActive ? "bg-slate-900 text-white font-medium" : "text-slate-600 hover:bg-panel2"}`}>
-              <Icon size={19} className="shrink-0" />
-              {!collapsed && <span className="flex-1">{label}</span>}
-              {!collapsed && phase && <span className="text-[10px] opacity-60">Soon</span>}
+    <nav className="lg:hidden fixed inset-x-0 bottom-0 z-40 bg-white border-t border-line pb-safe">
+      <div className="grid grid-cols-5 h-[72px]">
+        {TABS.map(({ path, label, Icon }) => {
+          const active = path === "/" ? pathname === "/" : pathname.startsWith(path);
+          return (
+            <Link key={path} to={path} className="flex flex-col items-center justify-center gap-1 press">
+              <Icon active={active} width={27} height={27} className={active ? "text-ink" : "text-[#555]"} />
+              <span className={`text-[14.5px] ${active ? "text-ink font-semibold" : "text-[#555]"}`}>{label}</span>
+            </Link>
+          );
+        })}
+      </div>
+    </nav>
+  );
+}
+
+/** Left sidebar + top bar (laptops / desktops) */
+function DesktopChrome() {
+  const { user, accounts, accountId, setAccountId, logout } = useAuth();
+  const acc = accounts.find((a) => a.id === accountId);
+  const { pathname } = useLocation();
+  return (
+    <>
+      <aside className="hidden lg:flex fixed inset-y-0 left-0 w-[248px] flex-col border-r border-line bg-white z-30">
+        <Link to="/" className="h-[76px] px-5 flex items-center gap-3">
+          <AppMark size={40} />
+          <div className="leading-tight"><div className="font-semibold text-[17px]">SAHI Trading</div><div className="text-[12px] text-muted">Paper trading · virtual money</div></div>
+        </Link>
+        <nav className="flex-1 overflow-y-auto px-3 py-2 space-y-0.5">
+          {TABS.map(({ path, label, Icon }) => {
+            const active = path === "/" ? pathname === "/" : pathname.startsWith(path);
+            return (
+              <Link key={path} to={path} className={`flex items-center gap-3 rounded-2xl px-3 py-2.5 text-[15px] transition-colors ${active ? "bg-soft text-ink font-semibold" : "text-[#444] hover:bg-soft"}`}>
+                <Icon active={active} width={24} height={24} />{label}
+              </Link>
+            );
+          })}
+          <div className="h-px bg-line my-3 mx-3" />
+          {MORE.map(({ path, label, Icon, soon }) => (
+            <NavLink key={path} to={path} className={({ isActive }) => `flex items-center gap-3 rounded-2xl px-3 py-2 text-[14px] transition-colors ${isActive ? "bg-soft text-ink font-medium" : "text-muted hover:bg-soft hover:text-ink"}`}>
+              <Icon size={19} strokeWidth={1.7} /><span className="flex-1">{label}</span>{soon && <span className="text-[10px] uppercase tracking-wide text-faint">Soon</span>}
             </NavLink>
           ))}
         </nav>
-        <button onClick={logout} className="m-2 flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm text-slate-600 hover:bg-panel2">
-          <LogOut size={19} />{!collapsed && "Logout"}
-        </button>
+        <button onClick={logout} className="m-3 flex items-center gap-3 rounded-2xl px-3 py-2.5 text-[14px] text-sell hover:bg-sellbg/50"><LogOut size={19} />Logout</button>
       </aside>
 
-      <div className="flex-1 min-w-0 flex flex-col">
-        <header className="h-16 shrink-0 border-b border-line bg-white px-5 flex items-center gap-3">
-          <StockSearch />
-          <div className="hidden lg:flex items-center gap-2 text-xs text-muted" title={feed?.reason ?? ""}>
-            <span className={`h-2 w-2 rounded-full ${dot}`} /> Data: {label}
-          </div>
-          <div className="flex-1" />
-          {accounts.length > 1 && (
-            <select aria-label="Account" className="input !w-auto !rounded-full" value={accountId ?? ""}
-                    onChange={(e) => setAccountId(Number(e.target.value))}>
-              {accounts.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
-            </select>
-          )}
-          <Link to="/funds" title="Virtual funds" className="flex items-center gap-1.5 rounded-full border border-line px-3.5 py-2 text-sm hover:bg-panel2">
-            <IndianRupee size={15} /><span className="font-medium">{acc ? inr(acc.balance).replace("₹", "") : "0.00"}</span>
-          </Link>
-          <button aria-label="Notifications" className="h-10 w-10 grid place-items-center rounded-full bg-panel2 text-slate-700"><Bell size={18} /></button>
-          <Link to="/settings" aria-label="Settings" className="h-10 w-10 grid place-items-center rounded-full bg-panel2 text-slate-700"><Settings size={18} /></Link>
-          <div title={user?.email} className="h-10 w-10 rounded-full bg-slate-900 text-white grid place-items-center text-sm font-semibold">
-            {user?.name?.[0]?.toUpperCase()}
-          </div>
-        </header>
-        <main className="flex-1 overflow-y-auto p-5 bg-soft"><Outlet /></main>
-      </div>
+      <header className="hidden lg:flex fixed top-0 right-0 left-[248px] h-[76px] z-20 bg-white/90 backdrop-blur border-b border-line items-center gap-3 px-8">
+        <button onClick={() => openSearch()} className="flex-1 max-w-[520px] h-12 flex items-center gap-3 rounded-full border border-line px-5 text-left text-[16px] text-faint hover:border-[#cfcfcf] transition-colors">
+          <Search size={20} className="text-ink" />Search SAHI
+        </button>
+        <FeedDot />
+        <div className="flex-1" />
+        {accounts.length > 1 && (
+          <select aria-label="Portfolio" className="h-11 rounded-full border border-line px-4 text-[14px] bg-white" value={accountId ?? ""} onChange={(e) => setAccountId(Number(e.target.value))}>
+            {accounts.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
+          </select>
+        )}
+        <Link to="/funds" title="Virtual funds" className="h-12 flex items-center gap-2 rounded-full border border-line px-5 text-[15px] hover:bg-soft">
+          <IndianRupee size={17} /><span className="font-medium">{acc ? inr(acc.balance).replace("₹", "") : "0.00"}</span>
+        </Link>
+        <Link to="/profile" aria-label="Profile" title={user?.email} className="icon-btn"><User size={22} strokeWidth={1.6} /></Link>
+      </header>
+    </>
+  );
+}
+
+export default function AppLayout() {
+  const { pathname } = useLocation();
+  const [params] = useSearchParams();
+  // like the reference app: the stock page and the profile page cover the bottom bar
+  const immersive = (pathname === "/trade" && params.get("symbol")) || pathname === "/profile";
+  return (
+    <div className="min-h-full bg-white">
+      <DesktopChrome />
+      <main className={`lg:pl-[248px] lg:pt-[76px] ${immersive ? "pb-0" : "pb-[calc(72px+env(safe-area-inset-bottom))]"} lg:pb-10`}>
+        <div key={pathname} className="lg:max-w-[1120px] lg:mx-auto lg:px-8 lg:py-6 animate-fade">
+          <Outlet />
+        </div>
+      </main>
+      {!immersive && <BottomNav />}
+      <SearchOverlay />
     </div>
   );
 }

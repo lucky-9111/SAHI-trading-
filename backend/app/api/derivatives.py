@@ -72,7 +72,7 @@ def expiries(underlying: str, _: User = Depends(current_user), db: Session = Dep
         "underlying": u, "is_index": u in INDEX_UNDERLYINGS, "spot": sp["ltp"], "chart_symbol": sp["chart_symbol"],
         "chart_exchange": sp["chart_exchange"],
         "lot_size": (futs[0].lot_size if futs else _contracts(db, u, "OPT")[0].lot_size),
-        "futures": [{"instrument_id": f.id, "symbol": f.symbol, "exchange": f.exchange, "expiry": f.expiry.isoformat(), "lot_size": f.lot_size,
+        "futures": [{"instrument_id": f.id, "symbol": f.symbol, "exchange": f.exchange, "token": f.token, "expiry": f.expiry.isoformat(), "lot_size": f.lot_size,
                      **(quote_dict(quotes[(f.exchange, f.token)]) if (f.exchange, f.token) in quotes else {})}
                     for f in futs],
         "option_expiries": [e.isoformat() for e in opt_expiries],
@@ -108,7 +108,7 @@ def chain(underlying: str, expiry: date = Query(...), _: User = Depends(current_
         if c is None:
             return None
         q = quotes.get((c.exchange, c.token))
-        return {"instrument_id": c.id, "symbol": c.symbol, "lot_size": c.lot_size,
+        return {"instrument_id": c.id, "symbol": c.symbol, "lot_size": c.lot_size, "token": c.token, "exchange": c.exchange,
                 "ltp": str(q.ltp) if q else None, "pct": str(q.pct) if q else None}
 
     by = {(c.strike, c.option_type): c for c in shown}

@@ -1,39 +1,30 @@
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { ArrowDownRight, ArrowUpRight, ChevronRight, IndianRupee, Minus, Search, Settings, User } from "lucide-react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import ChartView from "../charts/ChartView";
+import AreaChart from "../charts/AreaChart";
+import { AppMark, ChartArt } from "../components/art";
 import CreateAccount from "../components/CreateAccount";
-import { ContractRow, IndexCard, StockRow, TrendTile, trendLabel, type ContractQuote, type IndexRow, type QuoteRow } from "../components/market";
+import { ContractRow, INDEX_TRADE, IndexCard, StockRow, trendLabel, type ContractQuote, type IndexRow, type QuoteRow } from "../components/market";
+import { openSearch } from "../components/search";
+import { Chip, EmptyState, Flash, Segmented, Skeleton, Tabs, ViewAll } from "../components/ui";
 import { useAuth } from "../contexts/AuthContext";
 import { api } from "../services/api";
 import type { Dashboard } from "../types";
-import { inr, pnlClass } from "../utils/format";
+import { inr, pnlClass, price } from "../utils/format";
 import { keyOfPosition, liveKpis, type LiveKpis } from "../utils/liveKpi";
-import { useLiveLtps, useLiveRows, useOrdersChanged } from "../utils/liveSocket";
+import { useLiveLtps, useLiveRows, useLiveTick, useOrdersChanged } from "../utils/liveSocket";
+import { displayName, readRecent } from "../utils/names";
 
-const TABS = ["F&O", "Stocks", "Commodities", "IPO", "Research", "ETFs"] as const;
-type Tab = (typeof TABS)[number];
+type Tab = "fno" | "stocks" | "commodities" | "ipo" | "research" | "etfs";
+const TAB_KEY = "sahi_home_tab";
 
-const UNSUPPORTED: Record<string, string> = {
-  IPO: "IPO tracking is not available yet. There is no IPO data source connected.",
-  Research: "Research content is not available yet. There is no research data source connected.",
-};
-
-function Stat({ label, value, cls = "" }: { label: string; value: ReactNode; cls?: string }) {
-  return (
-    <div className="panel px-4 py-3">
-      <div className="text-xs text-muted">{label}</div>
-      <div className={`mt-0.5 text-lg font-semibold ${cls}`}>{value}</div>
-    </div>
-  );
-}
-
-function usePolled<T>(path: string, ms: number): { data: T | null; error: string } {
+function usePolled<T>(path: string | null, ms: number): { data: T | null; error: string } {
   const [data, setData] = useState<T | null>(null);
   const [error, setError] = useState("");
   useEffect(() => {
+    if (!path) return;
     let stop = false;
-    const load = () => api<T>(path).then((d) => { if (!stop) { setData(d); setError(""); } })
-      .catch((e) => { if (!stop) setError(e.message); });
+    const load = () => { if (document.hidden) return; api<T>(path).then((d) => { if (!stop) { setData(d); setError(""); } }).catch((e) => { if (!stop) setError(e.message); }); };
     load();
     const t = setInterval(load, ms);
     return () => { stop = true; clearInterval(t); };
@@ -42,157 +33,288 @@ function usePolled<T>(path: string, ms: number): { data: T | null; error: string
 }
 
 function ErrorNote({ text }: { text: string }) {
+  return <div role="alert" className="mx-4 lg:mx-0 my-4 rounded-2xl bg-sellbg/60 px-4 py-3 text-[15px] text-sell">Market data unavailable: {text}</div>;
+}
+
+const Divider = () => <div className="h-px bg-line" />;
+
+/* ---------------------------------------------------------------- header (phone) */
+function MobileHeader() {
   return (
-    <div role="alert" className="panel p-4 text-sm">
-      <div className="font-medium text-down">Market data unavailable</div>
-      <div className="text-muted mt-1">{text}</div>
+    <div className="lg:hidden flex items-center gap-3 px-4 pt-3 pb-2">
+      <Link to="/" className="press"><div className="h-[46px] w-[46px] rounded-[15px] border border-line grid place-items-center"><AppMark size={30} /></div></Link>
+      <button onClick={() => openSearch()} className="flex-1 min-w-0 h-[46px] rounded-full border border-line flex items-center gap-3 px-4 text-[17px] text-muted press">
+        <Search size={22} strokeWidth={1.8} className="text-ink shrink-0" /><span className="truncate">Search SAHI</span>
+      </button>
+      <Link to="/funds" aria-label="Funds" className="h-[46px] w-[46px] grid place-items-center rounded-full border border-line press"><IndianRupee size={21} strokeWidth={1.7} /></Link>
+      <Link to="/profile" aria-label="Profile" className="h-[46px] w-[46px] grid place-items-center rounded-full border border-line press"><User size={21} strokeWidth={1.7} /></Link>
     </div>
   );
 }
 
-function StocksTab({ dash, kpi }: { dash: Dashboard | null; kpi: LiveKpis | null }) {
-  const overview = usePolled<{ indices: IndexRow[]; market_open: boolean }>("/api/market/overview", 15000);
-  const popular = usePolled<{ items: QuoteRow[] }>("/api/market/lists/popular", 15000);
-  const [chartKey, setChartKey] = useState("NIFTY50");
-  const [view, setView] = useState<"popular" | "gainers" | "losers">("popular");
+/* ---------------------------------------------------------------- portfolio strip (live KPIs) */
+function PortfolioStrip({ dash, kpi }: { dash: Dashboard; kpi: LiveKpis }) {
+  return (
+    <Link to="/positions" className="mx-4 lg:mx-0 mt-5 card flex items-center gap-4 px-5 py-4 press">
+      <div className="flex-1 grid grid-cols-2 gap-x-4 gap-y-3 sm:grid-cols-4">
+        <div><div className="text-[13px] text-muted">Virtual capital</div><div className="text-[17px] font-medium"><Flash value={kpi.totalCapital}>{inr(kpi.totalCapital)}</Flash></div></div>
+        <div><div className="text-[13px] text-muted">Total P&amp;L{kpi.allLive && dash.open_positions.length ? <span className="ml-1 text-up">●</span> : null}</div>
+          <div className={`text-[17px] font-medium ${pnlClass(kpi.total)}`}><Flash value={kpi.total}>{inr(kpi.total, true)}</Flash></div></div>
+        <div className="hidden sm:block"><div className="text-[13px] text-muted">Available</div><div className="text-[17px] font-medium">{inr(kpi.available)}</div></div>
+        <div className="hidden sm:block"><div className="text-[13px] text-muted">Invested</div><div className="text-[17px] font-medium">{inr(kpi.invested)}</div></div>
+      </div>
+      <ChevronRight size={20} className="text-muted" />
+    </Link>
+  );
+}
 
-  const liveIdx = useLiveRows((overview.data?.indices ?? []).map((i) => ({ ...i, ltp: i.ltp as string | null, prev_close: i.prev_close ?? null, change: i.change as string | null, pct: i.pct as string | null })));
-  const indices: IndexRow[] = liveIdx.map((i) => ({ ...i, ltp: i.ltp ?? "", change: i.change ?? "", pct: i.pct ?? "", trend: trendLabel(Number(i.pct)) }));
-  const chartIndex = indices.find((i) => i.key === chartKey) ?? indices[0];
-  const livePopular = useLiveRows(popular.data?.items ?? []);
-  let rows = livePopular.filter((r) => r.ltp !== null);
-  if (view !== "popular") {
+/* ---------------------------------------------------------------- indices */
+function useIndices() {
+  const overview = usePolled<{ indices: IndexRow[]; market_open: boolean }>("/api/market/overview", 15000);
+  const live = useLiveRows((overview.data?.indices ?? []).map((i) => ({ ...i, ltp: i.ltp as string | null, prev_close: i.prev_close ?? null, change: i.change as string | null, pct: i.pct as string | null })));
+  const ORDER = ["NIFTY50", "SENSEX", "BANKNIFTY", "FINNIFTY", "MIDCPNIFTY"];
+  const indices: IndexRow[] = live.map((i) => ({ ...i, ltp: i.ltp ?? "", change: i.change ?? "", pct: i.pct ?? "", trend: trendLabel(Number(i.pct)) }))
+    .sort((a, b) => ORDER.indexOf(a.key) - ORDER.indexOf(b.key));
+  return { indices, open: overview.data?.market_open, error: overview.error, loaded: !!overview.data };
+}
+
+function IndicesRow({ indices, error, loaded, selected, onSelect, linkToTrade }: {
+  indices: IndexRow[]; error: string; loaded: boolean; selected?: string; onSelect?: (k: string) => void; linkToTrade?: boolean;
+}) {
+  if (error && !loaded) return <ErrorNote text={error} />;
+  return (
+    <div className="flex gap-3 overflow-x-auto no-scrollbar px-4 lg:px-0 pb-1">
+      {!loaded && [0, 1, 2].map((i) => <div key={i} className="skeleton shrink-0 w-[39vw] max-w-[200px] h-[104px] rounded-card" />)}
+      {indices.map((i) => (
+        <IndexCard key={i.key} i={i} active={selected === i.key}
+                   to={linkToTrade && INDEX_TRADE[i.key] ? `/trade?symbol=${INDEX_TRADE[i.key]}&exchange=NSE` : undefined}
+                   onClick={onSelect ? () => onSelect(i.key) : undefined} />
+      ))}
+    </div>
+  );
+}
+
+/* ---------------------------------------------------------------- recently viewed */
+function RecentlyViewed() {
+  const recent = useMemo(() => readRecent().filter((r) => r.exchange === "NSE").slice(0, 6), []);
+  const [rows, setRows] = useState<Record<string, QuoteRow>>({});
+  useEffect(() => {
+    recent.forEach((r) => {
+      if (INDEX_TRADE[r.symbol] || Object.values(INDEX_TRADE).includes(r.symbol)) return;
+      api<QuoteRow>(`/api/market/quote/${r.symbol}?exchange=NSE`).then((q) => setRows((cur) => ({ ...cur, [r.symbol]: q }))).catch(() => {});
+    });
+  }, [recent]);
+  const live = useLiveRows(Object.values(rows));
+  if (!recent.length) return null;
+  const by = Object.fromEntries(live.map((q) => [q.symbol, q]));
+  return (
+    <>
+      <Divider />
+      <section className="py-7">
+        <h2 className="h2 px-4 lg:px-0 mb-4">Recently Viewed</h2>
+        <div className="flex gap-3 overflow-x-auto no-scrollbar px-4 lg:px-0">
+          {recent.map((r) => {
+            const q = by[r.symbol];
+            return (
+              <Link key={r.symbol} to={`/trade?symbol=${r.symbol}&exchange=${r.exchange}`} className="card shrink-0 w-[46vw] max-w-[260px] px-5 py-4 press">
+                <div className="text-[17px] truncate">{displayName(r.symbol)}</div>
+                <div className="mt-3 flex items-baseline gap-2"><span className="text-[20px] font-medium"><Flash value={q?.ltp}>{q ? price(q.ltp) : "—"}</Flash></span><span className="text-[14px] text-muted">{r.exchange}</span></div>
+                <div className={`mt-1 text-[15px] ${q?.change ? pnlClass(q.change) : "text-muted"}`}>{q?.change ? `${Number(q.change) > 0 ? "+" : ""}${price(q.change)} (${Math.abs(Number(q.pct)).toFixed(2)}%)` : " "}</div>
+              </Link>
+            );
+          })}
+        </div>
+      </section>
+    </>
+  );
+}
+
+/* ---------------------------------------------------------------- Stocks tab */
+function StocksTab({ dash, kpi }: { dash: Dashboard | null; kpi: LiveKpis | null }) {
+  const { indices, error, loaded } = useIndices();
+  const popular = usePolled<{ items: QuoteRow[] }>("/api/market/lists/popular", 15000);
+  const live = useLiveRows(popular.data?.items ?? []);
+  const [view, setView] = useState<"traded" | "gainers" | "losers">("traded");
+  const [all, setAll] = useState(false);
+  let rows = live.filter((r) => r.ltp !== null);
+  if (view === "traded") rows = [...rows].sort((a, b) => (b.volume ?? 0) - (a.volume ?? 0));
+  else {
     rows = [...rows].sort((a, b) => Number(b.pct) - Number(a.pct));
     if (view === "losers") rows.reverse();
     rows = rows.filter((r) => (view === "gainers" ? Number(r.pct) > 0 : Number(r.pct) < 0));
   }
-
   return (
-    <div className="space-y-5">
-      <section>
-        <h2 className="font-semibold mb-2">Indices</h2>
-        {overview.error && !overview.data ? <ErrorNote text={overview.error} /> : (
-          <div className="flex gap-3 overflow-x-auto pb-1">
-            {indices.map((i) => <IndexCard key={i.key} i={i} active={i.key === chartIndex?.key} onClick={() => setChartKey(i.key)} />)}
-            {!overview.data && <div className="text-sm text-muted py-4">Loading…</div>}
-          </div>
-        )}
-        {overview.data && !overview.data.market_open && (
-          <div className="text-xs text-muted mt-2">Market is closed. Prices show the last close and the change versus the previous close.</div>
-        )}
+    <div>
+      {dash && kpi && <PortfolioStrip dash={dash} kpi={kpi} />}
+      <section className="pt-7 pb-8">
+        <h2 className="h2 px-4 lg:px-0 mb-4">Indices</h2>
+        <IndicesRow indices={indices} error={error} loaded={loaded} linkToTrade />
       </section>
-
-      {chartIndex && (
-        <section className="panel p-4">
-          <ChartView symbol={chartIndex.key} exchange={chartIndex.exchange} title={chartIndex.name} height={340} />
-        </section>
-      )}
-
-      {indices.length > 0 && (
-        <section>
-          <h2 className="font-semibold mb-1">Live Market Trends</h2>
-          <div className="text-xs text-muted mb-2">Based on today&apos;s change versus the previous close. Moves with the live price.</div>
-          <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-3">
-            {indices.map((i) => <TrendTile key={i.key} i={i} />)}
-          </div>
-        </section>
-      )}
-
-      <section>
-        <h2 className="font-semibold mb-2">Positions &amp; Orders</h2>
-        <div className="grid sm:grid-cols-3 gap-3">
-          <Link to="/positions" className="panel p-4 hover:bg-soft">
-            <div className="text-sm text-muted">Positions</div>
-            <div className="text-lg font-semibold mt-1">{dash?.stats.open_positions ?? 0} open</div>
-            {dash && dash.stats.open_positions > 0 && (
-              <div className={`text-sm ${pnlClass(kpi?.unrealized ?? dash.pnl.unrealized)}`}>{inr(kpi?.unrealized ?? dash.pnl.unrealized, true)} unrealized</div>
-            )}
-          </Link>
-          <Link to="/order-book" className="panel p-4 hover:bg-soft">
-            <div className="text-sm text-muted">Orders</div>
-            <div className="text-lg font-semibold mt-1">{dash?.orders_today ?? 0} today</div>
-          </Link>
-          <Link to="/trade-book" className="panel p-4 hover:bg-soft">
-            <div className="text-sm text-muted">Completed trades</div>
-            <div className="text-lg font-semibold mt-1">{dash?.stats.total_trades ?? 0}</div>
-            {dash && dash.stats.win_rate !== null && <div className="text-sm text-muted">Win rate {dash.stats.win_rate.toFixed(0)}%</div>}
-          </Link>
+      <RecentlyViewed />
+      <Divider />
+      <section className="pt-7">
+        <h2 className="h2 px-4 lg:px-0 mb-1">Trending Stocks</h2>
+        <Tabs size="md" value={view} onChange={(v) => { setView(v); setAll(false); }}
+              items={[{ value: "traded", label: "Most Traded", info: true }, { value: "gainers", label: "Top Gainers" }, { value: "losers", label: "Top Losers" }]} />
+        <div className="px-4 lg:px-0">
+          {popular.error && !popular.data ? <ErrorNote text={popular.error} /> : !popular.data ? <Skeleton rows={5} /> :
+            rows.length === 0 ? <div className="py-10 text-center text-muted">Nothing to show right now.</div> :
+              (all ? rows : rows.slice(0, 6)).map((r) => <StockRow key={r.symbol} r={r} />)}
+          {rows.length > 6 && <ViewAll label={all ? "Show less" : "View all"} onClick={() => setAll(!all)} />}
         </div>
-      </section>
-
-      <section className="panel p-4">
-        <div className="flex gap-2 mb-2">
-          {(["popular", "gainers", "losers"] as const).map((v) => (
-            <button key={v} className={view === v ? "chip-on" : "chip"} onClick={() => setView(v)}>
-              {v === "popular" ? "Popular stocks" : v === "gainers" ? "Gainers" : "Losers"}
-            </button>
-          ))}
-        </div>
-        {popular.error && !popular.data ? <ErrorNote text={popular.error} /> : rows.length === 0 ? (
-          <div className="text-sm text-muted py-6 text-center">{popular.data ? "Nothing to show right now." : "Loading…"}</div>
-        ) : rows.map((r) => <StockRow key={r.symbol} r={r} />)}
-        <div className="text-xs text-muted mt-2">Gainers and losers are ranked among this popular list only, not the whole market.</div>
       </section>
     </div>
   );
 }
 
-function ContractList({ title, items, note }: { title: string; items: ContractQuote[]; note?: string }) {
+/* ---------------------------------------------------------------- F&O tab */
+function TrendPill({ pct }: { pct: number }) {
+  const t = trendLabel(pct);
+  const up = /up/i.test(t), down = /down/i.test(t);
+  const Icon = up ? ArrowUpRight : down ? ArrowDownRight : Minus;
   return (
-    <section className="panel p-4">
-      <h2 className="font-semibold mb-1">{title}</h2>
-      {items.map((r) => <ContractRow key={r.contract} r={r} />)}
-      {note && <div className="text-xs text-muted mt-2">{note}</div>}
-    </section>
-  );
-}
-
-function CommoditiesTab() {
-  const raw = usePolled<{ items: ContractQuote[]; market_open: boolean }>("/api/market/commodities", 15000);
-  const items = useLiveRows(raw.data?.items ?? []);
-  const d = { data: raw.data ? { ...raw.data, items } : null, error: raw.error };
-  if (d.error && !d.data) return <ErrorNote text={d.error} />;
-  if (!d.data) return <div className="text-sm text-muted py-6">Loading…</div>;
-  return (
-    <div className="max-w-3xl space-y-2">
-      <div className="text-xs text-muted">MCX · {d.data.market_open ? "market open (09:00–23:30)" : "market closed (opens 09:00 on weekdays)"}</div>
-      <ContractList title="Commodity futures" items={d.data.items}
-                    note="Nearest-expiry contract of each commodity. Gold is quoted per 10 g, so its quantity is in units of 10 g (1 lot of GOLD = 100 units). Margin is an approximate fixed percentage." />
+    <div className="shrink-0 rounded-[22px] border border-line px-4 py-2.5 flex items-center gap-2.5">
+      <Icon size={22} className={up ? "text-up" : down ? "text-down" : "text-muted"} />
+      <div className="leading-tight">
+        <div className={`text-[16px] ${up ? "text-up" : down ? "text-down" : "text-muted"}`}>{t.replace("Strong ", "Strong ")}</div>
+        <div className="text-[13px] text-muted whitespace-nowrap">vs previous close</div>
+      </div>
     </div>
   );
 }
 
 function FnoTab() {
-  const raw = usePolled<{ indices: ContractQuote[]; stocks: ContractQuote[]; market_open: boolean }>("/api/market/fno", 15000);
-  const indices = useLiveRows(raw.data?.indices ?? []);
-  const stocks = useLiveRows(raw.data?.stocks ?? []);
-  const d = { data: raw.data ? { ...raw.data, indices, stocks } : null, error: raw.error };
-  if (d.error && !d.data) return <ErrorNote text={d.error} />;
-  if (!d.data) return <div className="text-sm text-muted py-6">Loading…</div>;
+  const { indices, error, loaded } = useIndices();
+  const [sel, setSel] = useState("NIFTY50");
+  const fno = usePolled<{ indices: ContractQuote[]; stocks: ContractQuote[] }>("/api/market/fno", 15000);
+  const idxFut = useLiveRows(fno.data?.indices ?? []);
+  const stkFut = useLiveRows(fno.data?.stocks ?? []);
+  const cur = indices.find((i) => i.key === sel) ?? indices[0];
+  const { fresh } = useLiveTick(cur?.exchange, cur?.token);
   return (
-    <div className="grid lg:grid-cols-2 gap-4 max-w-5xl">
-      <ContractList title="Index futures" items={d.data.indices} note="Open an index to trade its futures or options chain." />
-      <ContractList title="Stock futures" items={d.data.stocks} />
+    <div>
+      <section className="pt-7 pb-8">
+        <div className="flex items-center justify-between px-4 lg:px-0 mb-4">
+          <h2 className="h2">Indices</h2>
+          {cur && INDEX_TRADE[cur.key] && <Link to={`/trade?symbol=${INDEX_TRADE[cur.key]}&exchange=NSE`} className="rounded-full border border-line px-4 py-2 text-[15px] press">Option chain</Link>}
+        </div>
+        <IndicesRow indices={indices} error={error} loaded={loaded} selected={cur?.key} onSelect={setSel} />
+      </section>
+      <Divider />
+      {cur && (
+        <section className="pt-7 px-4 lg:px-0">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <Link to={INDEX_TRADE[cur.key] ? `/trade?symbol=${INDEX_TRADE[cur.key]}&exchange=NSE` : "#"} className="text-[18px] underline underline-offset-4 decoration-1">{cur.key}</Link>
+              <div className="mt-1 flex items-baseline gap-2">
+                <span className="text-[28px] font-medium"><Flash value={cur.ltp}>{price(cur.ltp)}</Flash></span>
+                <span className={`text-[17px] ${pnlClass(cur.change)}`}>({Math.abs(Number(cur.pct)).toFixed(2)}%)</span>
+              </div>
+              <div className="mt-1 flex items-center gap-2 text-[15px] text-muted">
+                <span className={`h-2.5 w-2.5 rounded-full ${fresh ? "bg-down animate-pulse" : "bg-faint"}`} />{fresh ? "Live" : "Waiting for live ticks"}
+              </div>
+            </div>
+            <TrendPill pct={Number(cur.pct)} />
+          </div>
+          <div className="flex gap-2.5 overflow-x-auto no-scrollbar mt-5 mb-3"><Chip on>Price</Chip></div>
+          <AreaChart key={cur.key} symbol={cur.key} exchange={cur.exchange} prevClose={cur.prev_close ? Number(cur.prev_close) : null} />
+        </section>
+      )}
+      <Divider />
+      <section className="pt-7 px-4 lg:px-0">
+        <h2 className="h2 mb-2">Index Futures</h2>
+        {fno.error && !fno.data ? <ErrorNote text={fno.error} /> : !fno.data ? <Skeleton rows={4} /> : idxFut.map((r) => <ContractRow key={r.contract} r={r} />)}
+      </section>
+      <Divider />
+      <section className="pt-7 px-4 lg:px-0">
+        <h2 className="h2 mb-2">Stock Futures</h2>
+        {!fno.data ? <Skeleton rows={4} /> : stkFut.map((r) => <ContractRow key={r.contract} r={r} />)}
+      </section>
     </div>
   );
 }
 
-function EtfsTab() {
-  const etfsRaw = usePolled<{ items: QuoteRow[] }>("/api/market/lists/etfs", 15000);
-  const liveEtfs = useLiveRows(etfsRaw.data?.items ?? []);
-  const etfs = { data: etfsRaw.data ? { items: liveEtfs } : null, error: etfsRaw.error };
+/* ---------------------------------------------------------------- Commodities tab */
+function CommoditiesTab() {
+  const raw = usePolled<{ items: ContractQuote[]; market_open: boolean }>("/api/market/commodities", 15000);
+  const items = useLiveRows(raw.data?.items ?? []);
+  const [all, setAll] = useState(false);
   return (
-    <section className="panel p-4">
-      <h2 className="font-semibold mb-1">Popular ETFs</h2>
-      {etfs.error && !etfs.data ? <ErrorNote text={etfs.error} /> : (etfs.data?.items ?? []).map((r) => <StockRow key={r.symbol} r={r} />)}
-      {!etfs.data && !etfs.error && <div className="text-sm text-muted py-6">Loading…</div>}
+    <section className="pt-7 px-4 lg:px-0">
+      <div className="flex items-center justify-between mb-2">
+        <h2 className="h2">Top Traded Commodity</h2>
+        <span className={`rounded-full border border-line px-4 py-2 text-[14px] ${raw.data?.market_open ? "text-up" : "text-muted"}`}>
+          {raw.data ? (raw.data.market_open ? "MCX open" : "MCX closed") : "MCX"}
+        </span>
+      </div>
+      {raw.error && !raw.data ? <ErrorNote text={raw.error} /> : !raw.data ? <Skeleton rows={6} /> :
+        (all ? items : items.slice(0, 8)).map((r) => <ContractRow key={r.contract} r={r} icon />)}
+      {items.length > 8 && <ViewAll label={all ? "Show less" : "View all"} onClick={() => setAll(!all)} />}
+      <p className="text-[13px] text-muted pb-6 pt-2">Nearest-expiry future of each commodity. Gold is quoted per 10 g (1 lot of GOLD = 100 units).</p>
     </section>
   );
 }
 
+/* ---------------------------------------------------------------- IPO / Research (no data source) */
+function IpoTab() {
+  const [v, setV] = useState<"open" | "applied" | "closed" | "upcoming">("open");
+  return (
+    <section className="pt-6 px-4 lg:px-0">
+      <Segmented value={v} onChange={setV} items={[["open", "Open"], ["applied", "Applied"], ["closed", "Closed"], ["upcoming", "Upcoming"]]} />
+      <EmptyState art={<ChartArt />} title="No IPO data is connected yet" text="IPOs will appear here once an IPO data source is added." />
+    </section>
+  );
+}
+
+function ResearchTab() {
+  const [v, setV] = useState<"options" | "stocks">("options");
+  return (
+    <section className="pt-6 px-4 lg:px-0">
+      <Segmented value={v} onChange={setV} items={[["options", "Options"], ["stocks", "Stocks"]]} />
+      <EmptyState art={<ChartArt />} title="No research recommendations" text="There is no research feed in paper-trading mode." />
+    </section>
+  );
+}
+
+/* ---------------------------------------------------------------- ETFs */
+const ETF_CATS: Record<string, { label: string; chips?: Record<string, string[]>; symbols?: string[] }> = {
+  indices: { label: "Indices", chips: { "Nifty 50": ["NIFTYBEES", "SETFNIF50", "NIFTYIETF", "HDFCNIFTY"], "Nifty Bank": ["BANKBEES", "SETFNIFBK", "BANKIETF", "PSUBNKBEES"], "Others": ["JUNIORBEES", "ITBEES"] } },
+  liquid: { label: "Liquid", symbols: ["LIQUIDBEES", "LIQUIDIETF"] },
+  gold: { label: "Gold", symbols: ["GOLDBEES", "HDFCGOLD", "GOLDIETF"] },
+  silver: { label: "Silver", symbols: ["SILVERBEES", "SILVERIETF", "HDFCSILVER"] },
+};
+
+function EtfsTab() {
+  const raw = usePolled<{ items: QuoteRow[] }>("/api/market/lists/etfs", 15000);
+  const items = useLiveRows(raw.data?.items ?? []);
+  const [cat, setCat] = useState("indices");
+  const [chip, setChip] = useState("Nifty 50");
+  const c = ETF_CATS[cat];
+  const want = c.chips ? c.chips[chip] ?? [] : c.symbols ?? [];
+  const rows = items.filter((r) => want.includes(r.symbol));
+  return (
+    <section className="pt-7">
+      <h2 className="h2 px-4 lg:px-0 mb-1">Popular Categories</h2>
+      <Tabs size="md" value={cat} onChange={(v) => { setCat(v); setChip(ETF_CATS[v].chips ? Object.keys(ETF_CATS[v].chips!)[0] : ""); }}
+            items={Object.entries(ETF_CATS).map(([k, v]) => ({ value: k, label: v.label, info: k === "indices" }))} />
+      {c.chips && (
+        <div className="flex gap-2.5 overflow-x-auto no-scrollbar px-4 lg:px-0 pt-5">
+          {Object.keys(c.chips).map((k) => <Chip key={k} on={chip === k} onClick={() => setChip(k)}>{k}</Chip>)}
+        </div>
+      )}
+      <div className="px-4 lg:px-0">
+        {raw.error && !raw.data ? <ErrorNote text={raw.error} /> : !raw.data ? <Skeleton rows={3} /> :
+          rows.length ? rows.map((r) => <StockRow key={r.symbol} r={r} />) : <div className="py-10 text-center text-muted">No ETF in this category yet.</div>}
+      </div>
+    </section>
+  );
+}
+
+/* ---------------------------------------------------------------- page */
 export default function HomePage() {
   const { accountId, accounts } = useAuth();
-  const [tab, setTab] = useState<Tab>("Stocks");
+  const [tab, setTabState] = useState<Tab>(() => { try { return (localStorage.getItem(TAB_KEY) as Tab) || "stocks"; } catch { return "stocks"; } });
+  const setTab = (t: Tab) => { setTabState(t); try { localStorage.setItem(TAB_KEY, t); } catch { /* ignore */ } };
   const [dash, setDash] = useState<Dashboard | null>(null);
 
   const load = useCallback(() => {
@@ -200,45 +322,43 @@ export default function HomePage() {
     api<Dashboard>(`/api/accounts/${accountId}/dashboard`).then(setDash).catch(() => {});
   }, [accountId]);
   useEffect(() => { load(); const t = setInterval(load, 15000); return () => clearInterval(t); }, [load]);
-  useOrdersChanged(load);   // a fill / stop / target / square-off: refresh the KPI numbers now
-  // the KPI cards follow the live price of the open positions
+  useOrdersChanged(load);
   const posKeys = useMemo(() => (dash?.open_positions ?? []).map(keyOfPosition).filter(Boolean), [dash]);
   const ltps = useLiveLtps(posKeys);
   const kpi = dash ? liveKpis(dash, ltps) : null;
 
   if (accounts.length === 0) {
     return (
-      <div className="space-y-3">
-        <h1 className="text-lg font-semibold">Welcome to SAHI Trading</h1>
-        <p className="text-sm text-muted">Create your first virtual portfolio to start paper trading.</p>
+      <div className="px-4 lg:px-0 py-6 space-y-4">
+        <MobileHeader />
+        <h1 className="page-title">Welcome to SAHI Trading</h1>
+        <p className="text-[16px] text-muted">Create your first virtual portfolio to start paper trading.</p>
         <CreateAccount />
       </div>
     );
   }
   return (
-    <div className="space-y-5 max-w-6xl">
-      {dash && (
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-          <Stat label="Virtual capital" value={inr(kpi!.totalCapital)} />
-          <Stat label="Available balance" value={inr(kpi!.available)} />
-          <Stat label="Invested" value={inr(kpi!.invested)} />
-          <Stat label={`Total P&L${kpi!.allLive && dash.open_positions.length ? " ● live" : ""}`} value={inr(kpi!.total, true)} cls={pnlClass(kpi!.total)} />
-        </div>
-      )}
-      <div className="flex gap-6 border-b border-line overflow-x-auto">
-        {TABS.map((t) => (
-          <button key={t} onClick={() => setTab(t)}
-                  className={`pb-2.5 text-[15px] whitespace-nowrap border-b-2 -mb-px ${
-                    tab === t ? "border-slate-900 font-semibold text-slate-900" : "border-transparent text-muted hover:text-slate-900"}`}>
-            {t}
-          </button>
-        ))}
+    <div className="lg:max-w-[860px]">
+      <MobileHeader />
+      <div className="sticky top-0 lg:top-[76px] z-20 bg-white">
+        <Tabs value={tab} onChange={setTab}
+              items={[{ value: "fno", label: "F&O" }, { value: "stocks", label: "Stocks" }, { value: "commodities", label: "Commodities" },
+                      { value: "ipo", label: "IPO" }, { value: "research", label: "Research" }, { value: "etfs", label: "ETFs" }]}
+              right={<Link to="/settings" aria-label="Settings" className="shrink-0 self-center ml-1 h-[46px] w-[54px] grid place-items-center rounded-l-full bg-panel2 lg:hidden press shadow-[-12px_0_12px_#fff]"><Settings size={24} strokeWidth={1.6} /></Link>} />
       </div>
-      {tab === "Stocks" && <StocksTab dash={dash} kpi={kpi} />}
-      {tab === "ETFs" && <EtfsTab />}
-      {tab === "F&O" && <FnoTab />}
-      {tab === "Commodities" && <CommoditiesTab />}
-      {UNSUPPORTED[tab] && <div className="panel p-6 text-sm text-muted max-w-xl">{UNSUPPORTED[tab]}</div>}
+      <div key={tab} className="animate-fade">
+        {tab === "stocks" && <StocksTab dash={dash} kpi={kpi} />}
+        {tab === "fno" && <FnoTab />}
+        {tab === "commodities" && <CommoditiesTab />}
+        {tab === "ipo" && <IpoTab />}
+        {tab === "research" && <ResearchTab />}
+        {tab === "etfs" && <EtfsTab />}
+      </div>
+      {/* the reference app's peach strip above the bottom bar */}
+      <div className="lg:hidden fixed inset-x-0 bottom-[calc(72px+env(safe-area-inset-bottom))] z-30 bg-peach px-4 py-2.5 text-[15px] text-ink truncate">
+        You are on <b className="font-semibold">SAHI Paper Trading</b> · virtual money only
+      </div>
+      <div className="lg:hidden h-12" />
     </div>
   );
 }

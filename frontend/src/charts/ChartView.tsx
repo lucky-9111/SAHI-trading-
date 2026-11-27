@@ -40,34 +40,33 @@ export default function ChartView({ symbol, exchange, height = 520, title, lines
   const { tick, fresh, feed } = useLiveTick(data?.exchange, data?.token);
   const liveText = fresh ? "LIVE" : feed === "reconnecting" || feed === "offline" ? "Reconnecting…" : feed === "stale" ? "Feed stale" : feed === "closed" ? "Market closed" : tick ? "Quiet (no recent trade)" : "Waiting for ticks…";
   return (
-    <div className="space-y-2">
-      <div className="flex flex-wrap items-center gap-3">
-        <h2 className="text-lg font-semibold">{title ?? symbol} <span className="text-sm text-muted">{exchange}</span></h2>
-        {last && <span className="text-sm">{fresh ? "LTP" : "Last close"} <b>{(fresh && tick ? tick.ltp : last.close).toFixed(2)}</b></span>}
-        {data && <span className={`text-xs font-medium ${fresh ? "text-up" : "text-muted"}`} title="Prices pushed by Angel One over a websocket">● {liveText}</span>}
-        <div className="flex-1" />
-        <div className="flex gap-1">
+    <div className="space-y-3">
+      <div className="flex items-center gap-3 px-4 lg:px-0">
+        {title && <h2 className="text-[18px] font-medium">{title} <span className="text-[14px] text-muted">{exchange}</span></h2>}
+        {last && <span className="text-[15px]">{fresh ? "LTP" : "Last close"} <b className="font-medium">{(fresh && tick ? tick.ltp : last.close).toFixed(2)}</b></span>}
+        {data && <span className={`inline-flex items-center gap-1.5 text-[13px] ${fresh ? "text-up" : "text-muted"}`} title="Prices pushed by Angel One over a websocket">
+          <span className={`h-2 w-2 rounded-full ${fresh ? "bg-up animate-pulse" : "bg-faint"}`} />{liveText}</span>}
+      </div>
+      <div className="flex items-center gap-2 overflow-x-auto no-scrollbar px-4 lg:px-0">
+        <div className="seg shrink-0">
           {TIMEFRAMES.map((t) => (
             <button key={t} onClick={() => setTf(t)}
-                    className={`px-3 py-1 rounded-full text-sm ${tf === t ? "bg-accent text-white" : "text-slate-600 hover:bg-panel2"}`}>
+                    className={`relative z-10 rounded-full px-3.5 py-1.5 text-[14px] transition-colors ${tf === t ? "bg-white text-ink font-medium shadow-[0_1px_2px_rgba(0,0,0,.08)]" : "text-[#555]"}`}>
               {LABEL[t] ?? t}
             </button>
           ))}
         </div>
-        <div className="flex gap-3 text-sm">
-          {MAS.map((m) => (
-            <label key={m.period} className="flex items-center gap-1 cursor-pointer">
-              <input type="checkbox" checked={!!maOn[m.period]}
-                     onChange={(e) => setMaOn({ ...maOn, [m.period]: e.target.checked })} />
-              <span style={{ color: m.color }}>MA{m.period}</span>
-            </label>
-          ))}
-          <label className="flex items-center gap-1 cursor-pointer"><input type="checkbox" checked={showBB} onChange={(e) => setShowBB(e.target.checked)} /><span style={{ color: "#06b6d4" }}>Bollinger</span></label>
-          <label className="flex items-center gap-1 cursor-pointer"><input type="checkbox" checked={showRSI} onChange={(e) => setShowRSI(e.target.checked)} /><span style={{ color: "#8b5cf6" }}>RSI</span></label>
-        </div>
+        {MAS.map((m) => (
+          <button key={m.period} onClick={() => setMaOn({ ...maOn, [m.period]: !maOn[m.period] })}
+                  className={`shrink-0 rounded-full border px-3.5 py-1.5 text-[14px] transition-colors ${maOn[m.period] ? "border-ink" : "border-line text-muted"}`}>
+            <span style={{ color: maOn[m.period] ? m.color : undefined }}>●</span> MA{m.period}
+          </button>
+        ))}
+        <button onClick={() => setShowBB(!showBB)} className={`shrink-0 rounded-full border px-3.5 py-1.5 text-[14px] ${showBB ? "border-ink" : "border-line text-muted"}`}><span style={{ color: showBB ? "#06b6d4" : undefined }}>●</span> Bollinger</button>
+        <button onClick={() => setShowRSI(!showRSI)} className={`shrink-0 rounded-full border px-3.5 py-1.5 text-[14px] ${showRSI ? "border-ink" : "border-line text-muted"}`}><span style={{ color: showRSI ? "#8b5cf6" : undefined }}>●</span> RSI</button>
       </div>
-      <div className="panel overflow-hidden">
-        {loading && <div className="p-6 text-sm text-muted">Loading candles…</div>}
+      <div className="overflow-hidden lg:rounded-2xl">
+        {loading && <div className="skeleton mx-4 lg:mx-0" style={{ height }} />}
         {error && (
           <div className="p-6 text-sm" role="alert">
             <div className="font-medium text-down">Chart unavailable</div>
@@ -76,7 +75,7 @@ export default function ChartView({ symbol, exchange, height = 520, title, lines
         )}
         {data && data.candles.length > 0 && <CandleChart candles={data.candles} ma={activeMas} height={height} lines={lines} showBB={showBB} showRSI={showRSI} live={fresh && tick ? tick.ltp : null} tfSeconds={TF_SECONDS[tf]} />}
       </div>
-      {data && <div className="text-xs text-muted">Source: {data.source} · {data.status.state} · Times in IST · Historical candles + live ticks</div>}
+      {data && <div className="text-[12px] text-faint px-4 lg:px-0">Source: {data.source} · {data.status.state} · Times in IST · Historical candles + live ticks</div>}
     </div>
   );
 }

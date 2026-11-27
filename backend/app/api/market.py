@@ -28,7 +28,8 @@ INDEX_BY_KEY = {k: (n, e, t) for k, n, e, t in INDICES}
 LISTS = {
     "popular": ["RELIANCE", "TCS", "INFY", "HDFCBANK", "ICICIBANK", "SBIN", "ITC", "LT", "BHARTIARTL",
                 "AXISBANK", "KOTAKBANK", "HINDUNILVR", "TATAMOTORS", "MARUTI", "SUNPHARMA", "WIPRO"],
-    "etfs": ["NIFTYBEES", "BANKBEES", "JUNIORBEES", "GOLDBEES", "SILVERBEES", "LIQUIDBEES", "ITBEES", "PSUBNKBEES"],
+    "etfs": ["NIFTYBEES", "SETFNIF50", "NIFTYIETF", "HDFCNIFTY", "BANKBEES", "SETFNIFBK", "BANKIETF", "PSUBNKBEES", "JUNIORBEES",
+             "ITBEES", "LIQUIDBEES", "LIQUIDIETF", "GOLDBEES", "HDFCGOLD", "GOLDIETF", "SILVERBEES", "SILVERIETF", "HDFCSILVER"],
 }
 
 
@@ -105,7 +106,7 @@ def stock_rows_for(db: Session, symbol: str, exchange: str) -> dict:
         q = pricing.get_quotes([(inst.exchange, inst.token)]).get((inst.exchange, inst.token))
     except pricing.PriceUnavailable as e:
         raise HTTPException(503, f"Market data unavailable: {e}")
-    return {"symbol": inst.symbol, "exchange": inst.exchange, "instrument_id": inst.id,
+    return {"symbol": inst.symbol, "exchange": inst.exchange, "token": inst.token, "instrument_id": inst.id,
             **(quote_dict(q) if q else {"ltp": None, "prev_close": None, "change": None, "pct": None, "volume": None})}
 
 
