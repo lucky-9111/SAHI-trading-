@@ -160,7 +160,7 @@ export default function HomePage() {
   if (accounts.length === 0) {
     return (
       <div className="space-y-3">
-        <h1 className="text-lg font-semibold">Welcome to A Group Trader</h1>
+        <h1 className="text-lg font-semibold">Welcome to SAHI Trading</h1>
         <p className="text-sm text-muted">Create your first virtual portfolio to start paper trading.</p>
         <CreateAccount />
       </div>

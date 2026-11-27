@@ -6,7 +6,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
-    app_name: str = "A Group Trader"
+    app_name: str = "SAHI Trading"
     database_url: str = "sqlite:///./agroup_trader.db"
     secret_key: str = "CHANGE_ME_IN_ENV"
     access_token_minutes: int = 60 * 12

@@ -1,9 +1,9 @@
-# A Group Trader
+# SAHI Trading
 
 *Practice. Analyze. Improve.*
 
 A personal **paper-trading** platform (virtual money only). It never places real broker orders.
-Independent from A Group Scanner.
+Independent from the old scanner app.
 
 ## Stack
 FastAPI · SQLAlchemy 2 · SQLite (PostgreSQL-ready) · Alembic · React + TypeScript + Vite · Tailwind · Lightweight Charts
