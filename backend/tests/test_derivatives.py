@@ -183,3 +183,16 @@ def test_search_offers_index_underlyings_but_not_contracts(client, auth, fno):
     r = client.get("/api/instruments/search", params={"q": "nifty"}, headers=auth).json()
     assert r and r[0]["instrument_type"] == "IDX" and r[0]["symbol"] == "NIFTY"
     assert all(x["instrument_type"] in ("IDX", "EQ") for x in r)
+
+
+def test_futures_carry_open_interest_and_day_change(client, auth, fno, monkeypatch):  # noqa: F811
+    """The futures sheet shows OI and the day's change; OI comes from Angel's FULL quote (opnInterest, may be a float string)."""
+    pricing._qcache.clear()
+
+    def fake(exchange_tokens):
+        return [{"exchange": ex, "symbolToken": t, "ltp": 26050.0, "close": 26000.0, "netChange": 50.0, "percentChange": 0.19,
+                 "tradeVolume": 10, "opnInterest": "31912400.0"} for ex, toks in exchange_tokens.items() for t in toks]
+
+    monkeypatch.setattr(angel.provider, "get_market_data", fake)
+    f = client.get("/api/derivatives/NIFTY/expiries", headers=auth).json()["futures"][0]
+    assert f["oi"] == 31912400 and f["change"] == "50.0" and f["prev_close"] == "26000.0" and f["expiry"] == "2099-12-30"

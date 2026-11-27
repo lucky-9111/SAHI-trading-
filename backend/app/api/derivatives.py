@@ -73,7 +73,8 @@ def expiries(underlying: str, _: User = Depends(current_user), db: Session = Dep
         "chart_exchange": sp["chart_exchange"],
         "lot_size": (futs[0].lot_size if futs else _contracts(db, u, "OPT")[0].lot_size),
         "futures": [{"instrument_id": f.id, "symbol": f.symbol, "exchange": f.exchange, "token": f.token, "expiry": f.expiry.isoformat(), "lot_size": f.lot_size,
-                     **(quote_dict(quotes[(f.exchange, f.token)]) if (f.exchange, f.token) in quotes else {})}
+                     **({**quote_dict(quotes[(f.exchange, f.token)]), "oi": quotes[(f.exchange, f.token)].oi}
+                        if (f.exchange, f.token) in quotes else {})}
                     for f in futs],
         "option_expiries": [e.isoformat() for e in opt_expiries],
     }

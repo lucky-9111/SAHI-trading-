@@ -1,9 +1,10 @@
-import { Bookmark, BookmarkCheck, Search } from "lucide-react";
+import { Bookmark, BookmarkCheck, ChartLine, Link2, Search } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import type { PriceLine } from "../charts/CandleChart";
 import ChartView from "../charts/ChartView";
 import { ChartArt } from "../components/art";
+import FuturesSheet, { futureName, type FutureRow } from "../components/FuturesSheet";
 import type { QuoteRow } from "../components/market";
 import OrderPanel from "../components/OrderPanel";
 import { openSearch } from "../components/search";
@@ -17,7 +18,7 @@ import { displayName, pushRecent } from "../utils/names";
 
 const INDEX_NAMES = ["NIFTY", "BANKNIFTY", "FINNIFTY", "MIDCPNIFTY"];
 
-interface Future { instrument_id: number; symbol: string; exchange?: string; token?: string; expiry: string; lot_size: number; ltp?: string; pct?: string }
+type Future = FutureRow;
 interface Fno {
   underlying: string; is_index: boolean; spot: string | null; chart_symbol: string; chart_exchange: string;
   lot_size: number; futures: Future[]; option_expiries: string[];
@@ -78,6 +79,7 @@ export default function TradePage() {
   const [ctxKey, setCtxKey] = useState(0);
   const [sheet, setSheet] = useState<"BUY" | "SELL" | null>(null);
   const [saved, setSaved] = useState(false);
+  const [futuresOpen, setFuturesOpen] = useState(false);
   const ctx = useSymbolContext(symbol ?? "", exchange, ctxKey);
 
   useEffect(() => { if (symbol) pushRecent(symbol, exchange); }, [symbol, exchange]);
@@ -201,13 +203,32 @@ export default function TradePage() {
         <div className="min-w-0 space-y-5">
           <div className="pt-3 lg:pt-0 lg:card lg:p-4"><ChartView key={chartSymbol + seg} symbol={chartSymbol} exchange={chartExchange} height={seg === "options" ? 300 : 420} lines={lines} /></div>
 
+          {/* tools under the chart (stocks with F&O) */}
+          {seg === "equity" && fno && (fno.futures.length > 0 || fno.option_expiries.length > 0) && (
+            <div className="flex gap-3 overflow-x-auto no-scrollbar px-4 lg:px-0">
+              {fno.futures.length > 0 && (
+                <button onClick={() => setFuturesOpen(true)} className="shrink-0 w-[150px] rounded-2xl bg-panel2 px-3 py-4 flex flex-col items-center gap-2 press active:brightness-95">
+                  <ChartLine size={30} strokeWidth={1.6} />
+                  <span className="text-[16px]">Futures</span>
+                </button>
+              )}
+              {fno.option_expiries.length > 0 && (
+                <button onClick={() => { setSeg("options"); setLeg(null); window.scrollTo({ top: 0, behavior: "smooth" }); }}
+                        className="shrink-0 w-[150px] rounded-2xl bg-panel2 px-3 py-4 flex flex-col items-center gap-2 press active:brightness-95">
+                  <span className="h-[30px] w-[30px] rounded-lg bg-brand text-white grid place-items-center"><Link2 size={19} strokeWidth={2} /></span>
+                  <span className="text-[16px]">Option Chain</span>
+                </button>
+              )}
+            </div>
+          )}
+
           {seg === "futures" && fno && (
             <div className="px-4 lg:px-0 space-y-3">
               <div className="text-[15px] text-muted">Expiry</div>
               <div className="flex gap-2.5 overflow-x-auto no-scrollbar">
                 {fno.futures.map((f) => <Chip key={f.symbol} on={f.symbol === futSym} onClick={() => setFutSym(f.symbol)}>{fmtDate(f.expiry)}</Chip>)}
               </div>
-              {fut && <div className="text-[15px] text-muted">{fut.symbol} · lot {fut.lot_size} · LTP <b className="text-ink font-medium"><Flash value={futLive.fresh && futLive.tick ? futLive.tick.ltp : fut.ltp}>{price(futLive.fresh && futLive.tick ? futLive.tick.ltp : fut.ltp)}</Flash></b></div>}
+              {fut && <div className="text-[15px] text-muted">{futureName(fno.underlying, fut.expiry)} · lot {fut.lot_size} · LTP <b className="text-ink font-medium"><Flash value={futLive.fresh && futLive.tick ? futLive.tick.ltp : fut.ltp}>{price(futLive.fresh && futLive.tick ? futLive.tick.ltp : fut.ltp)}</Flash></b></div>}
             </div>
           )}
 
@@ -241,6 +262,11 @@ export default function TradePage() {
           </>
         ) : <div className="col-span-2 text-center text-[15px] text-muted py-3">Pick a strike from the option chain</div>}
       </div>
+      {fno && (
+        <FuturesSheet open={futuresOpen} onClose={() => setFuturesOpen(false)} underlying={fno.underlying} futures={fno.futures}
+                      spot={seg === "equity" && liveQuote?.ltp ? Number(liveQuote.ltp) : fno.spot ? Number(fno.spot) : null}
+                      onPick={(f) => { setFutSym(f.symbol); setSeg("futures"); setLeg(null); setFuturesOpen(false); window.scrollTo({ top: 0, behavior: "smooth" }); }} />
+      )}
       <Sheet open={!!sheet && !!contract} onClose={() => setSheet(null)} label="Place order">
         {sheet && panel(sheet, true)}
       </Sheet>

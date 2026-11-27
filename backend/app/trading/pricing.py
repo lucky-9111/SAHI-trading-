@@ -52,6 +52,7 @@ class Quote:
     change: Decimal
     pct: Decimal
     volume: int
+    oi: int = 0  # open interest (futures / options; 0 for equities)
 
 
 QUOTE_TTL = 10.0
@@ -79,7 +80,8 @@ def get_quotes(specs: list[tuple[str, str]], ttl: float = QUOTE_TTL) -> dict[tup
                     for r in rows:
                         q = Quote(r["exchange"], str(r["symbolToken"]), Decimal(str(r["ltp"])),
                                   Decimal(str(r.get("close") or 0)), Decimal(str(r.get("netChange") or 0)),
-                                  Decimal(str(r.get("percentChange") or 0)), int(r.get("tradeVolume") or 0))
+                                  Decimal(str(r.get("percentChange") or 0)), int(r.get("tradeVolume") or 0),
+                                  int(float(r.get("opnInterest") or 0)))
                         _qcache[(ex, q.token)] = (time.time(), q)
                         out[(ex, q.token)] = q
                     for tok in toks[i:i + 50]:
