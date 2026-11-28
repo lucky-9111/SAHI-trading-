@@ -4,6 +4,7 @@ import { useAuth } from "../contexts/AuthContext";
 import { api } from "../services/api";
 import { inr, pnlClass } from "../utils/format";
 import { useLiveTick } from "../utils/liveSocket";
+import { sessionHint, type MarketSession } from "../utils/marketStatus";
 import { displayName } from "../utils/names";
 import { uuid } from "../utils/uuid";
 import { Segmented, Switch } from "./ui";
@@ -13,10 +14,14 @@ interface Preview {
   quantity: number; max_risk_amount: string; balance: string; errors: string[]; warnings: string[];
   order_value?: string; required_funds?: string; entry_charges?: string; risk_per_share?: string; total_risk?: string;
   reward_per_share?: string; potential_reward?: string; risk_reward?: string; estimated_net_reward?: string;
+  market?: MarketSession; after_hours_mode?: "QUEUE" | "REJECT";
 }
-interface OrderResult { id: number; status: string; exec_price: string | null; reject_reason: string | null; side: string; quantity: number }
+interface OrderResult {
+  id: number; status: string; exec_price: string | null; reject_reason: string | null; side: string; quantity: number;
+  filled_quantity: number; order_type: string; limit_price: string | null; trigger_price: string | null;
+}
 interface Strategy { id: number; name: string }
-type OrderType = "MARKET" | "LIMIT" | "TRIGGER";
+type OrderType = "MARKET" | "LIMIT" | "SL" | "SL-M";
 type Side = "BUY" | "SELL";
 
 const PRODUCTS: Record<string, [string, string][]> = {
@@ -57,6 +62,7 @@ export default function OrderPanel({ symbol, exchange, lotSize = 1, itype = "EQ"
   const [validity, setValidity] = useState<"DAY" | "GTT">("DAY");
   const [qty, setQty] = useState("1");
   const [price, setPrice] = useState("");
+  const [trigger, setTrigger] = useState("");
   const [slOn, setSlOn] = useState(false);
   const [tpOn, setTpOn] = useState(false);
   const [sl, setSl] = useState("");
@@ -71,7 +77,8 @@ export default function OrderPanel({ symbol, exchange, lotSize = 1, itype = "EQ"
   const key = useRef(uuid());
   const lots = lotSize > 1;
   const buy = side === "BUY";
-  const priced = orderType !== "MARKET";
+  const needsLimit = orderType === "LIMIT" || orderType === "SL";
+  const needsTrigger = orderType === "SL" || orderType === "SL-M";
   const { tick, fresh } = useLiveTick(token ? exchange : undefined, token);
   const ltp = fresh && tick ? String(tick.ltp) : pv?.ltp ?? null;
 
@@ -99,7 +106,8 @@ export default function OrderPanel({ symbol, exchange, lotSize = 1, itype = "EQ"
   const body = () => ({
     symbol, exchange, side, order_type: orderType, product, validity,
     quantity: Number(qty) > 0 ? Number(qty) * lotSize : undefined,
-    limit_price: priced && price ? price : undefined,
+    limit_price: needsLimit && price ? price : undefined,
+    trigger_price: needsTrigger && trigger ? trigger : undefined,
     stop_loss: slOn && sl ? sl : undefined, target: tpOn && target ? target : undefined,
     strategy_id: strategyId ? Number(strategyId) : undefined,
   });
@@ -113,7 +121,7 @@ export default function OrderPanel({ symbol, exchange, lotSize = 1, itype = "EQ"
     }, 300);
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [accountId, symbol, side, orderType, product, qty, price, slOn, sl, tpOn, target, lotSize]);
+  }, [accountId, symbol, side, orderType, product, validity, qty, price, trigger, slOn, sl, tpOn, target, lotSize]);
 
   const place = async () => {
     if (!accountId) return;
@@ -121,9 +129,16 @@ export default function OrderPanel({ symbol, exchange, lotSize = 1, itype = "EQ"
     try {
       const r = await api<OrderResult>(`/api/accounts/${accountId}/orders`, { method: "POST", json: { ...body(), idempotency_key: key.current } });
       key.current = uuid();
-      if (r.status === "EXECUTED") setResult({ ok: true, text: `${r.side} ${r.quantity} ${symbol} executed at ${inr(r.exec_price)}` });
-      else if (r.status === "PENDING") setResult({ ok: true, text: `${orderType === "TRIGGER" ? "Trigger" : "Limit"} order #${r.id} is open. It fills when the price reaches your ${orderType === "TRIGGER" ? "trigger" : "limit"}.` });
-      else setResult({ ok: false, text: `Order rejected: ${r.reject_reason}` });
+      // the backend decides the outcome; the panel only reports the status it returned
+      const texts: Record<string, string> = {
+        FILLED: `${r.side} ${r.quantity} ${symbol} executed at ${inr(r.exec_price)}`,
+        PARTIALLY_FILLED: `${r.filled_quantity} of ${r.quantity} executed at ${inr(r.exec_price)}. The rest is still working.`,
+        PENDING: `Order #${r.id} is pending. It executes only at a fresh live price once the market is open.`,
+        OPEN: `Limit order #${r.id} is open at ${inr(r.limit_price)}.`,
+        TRIGGER_PENDING: `Stop-loss order #${r.id} waits for its trigger at ${inr(r.trigger_price)}.`,
+      };
+      if (r.status === "REJECTED") setResult({ ok: false, text: `Order rejected: ${r.reject_reason}` });
+      else setResult({ ok: true, text: texts[r.status] ?? `Order #${r.id}: ${r.status}` });
       await refreshAccounts();
       onDone?.();
     } catch (e) {
@@ -135,7 +150,7 @@ export default function OrderPanel({ symbol, exchange, lotSize = 1, itype = "EQ"
 
   const step = (d: number) => setQty(String(Math.max(1, (Number(qty) || 0) + d)));
   const blocked = !!pv && pv.errors.length > 0;
-  const canPlace = !!accountId && !busy && Number(qty) > 0 && !blocked && (!priced || Number(price) > 0);
+  const canPlace = !!accountId && !busy && Number(qty) > 0 && !blocked && (!needsLimit || Number(price) > 0) && (!needsTrigger || Number(trigger) > 0);
   const cash = pv?.required_funds && pv.entry_charges ? Number(pv.required_funds) - Number(pv.entry_charges) : null;
   const label = "text-[16px] lg:text-[17px] text-[#555]";
 
@@ -184,17 +199,29 @@ export default function OrderPanel({ symbol, exchange, lotSize = 1, itype = "EQ"
           </button>
         ) : null}
 
-        <div className="flex items-center justify-between gap-3">
+        <div className="flex flex-wrap items-center justify-between gap-3">
           <div className={label}>Order type</div>
-          <Segmented tone="light" label="Order type" items={[["MARKET", "Market"], ["LIMIT", "Limit"], ["TRIGGER", "Trigger"]]} value={orderType}
-                     onChange={(t) => { setOrderType(t); if (t === "TRIGGER") setPrice(""); }} />
+          <Segmented tone="light" label="Order type" items={[["MARKET", "Market"], ["LIMIT", "Limit"], ["SL", "SL"], ["SL-M", "SL-M"]]} value={orderType}
+                     onChange={(t) => { setOrderType(t); if (t !== "LIMIT") setPrice(""); setTrigger(""); }} />
         </div>
 
-        {priced && (
+        {needsTrigger && (
           <div className="flex items-center justify-between gap-3 animate-fade">
-            <div className={label}>Price <b className="font-medium text-ink">{orderType === "TRIGGER" ? "Trigger" : "Limit"}</b></div>
-            <input aria-label={`${orderType === "TRIGGER" ? "Trigger" : "Limit"} price`} className="input !w-[190px] !rounded-2xl text-right text-[17px] lg:text-[20px]" type="number" step="0.05" inputMode="decimal"
+            <div className={label}>Price <b className="font-medium text-ink">Trigger</b></div>
+            <input aria-label="Trigger price" className="input !w-[190px] !rounded-2xl text-right text-[17px] lg:text-[20px]" type="number" step="0.05" inputMode="decimal"
+                   value={trigger} onChange={(e) => setTrigger(e.target.value)} />
+          </div>
+        )}
+        {needsLimit && (
+          <div className="flex items-center justify-between gap-3 animate-fade">
+            <div className={label}>Price <b className="font-medium text-ink">Limit</b></div>
+            <input aria-label="Limit price" className="input !w-[190px] !rounded-2xl text-right text-[17px] lg:text-[20px]" type="number" step="0.05" inputMode="decimal"
                    value={price} onChange={(e) => setPrice(e.target.value)} />
+          </div>
+        )}
+        {needsTrigger && (
+          <div className="-mt-3 text-[12.5px] lg:text-[13px] text-muted">
+            {orderType === "SL" ? "When the price reaches the trigger, a limit order at your limit price is sent." : "When the price reaches the trigger, a market order is sent."}
           </div>
         )}
 
@@ -236,15 +263,18 @@ export default function OrderPanel({ symbol, exchange, lotSize = 1, itype = "EQ"
           </div>
         )}
 
-        {pv?.warnings.filter((w) => !w.startsWith("Market is closed")).map((w) => <div key={w} className="text-[13px] lg:text-[14px] text-[#b26a00]">{w}</div>)}
+        {pv?.warnings.filter((w) => !w.includes("will be queued")).map((w) => <div key={w} className="text-[13px] lg:text-[14px] text-[#b26a00]">{w}</div>)}
         {pv?.errors.map((w) => <div key={w} role="alert" className="text-[13px] lg:text-[14px] text-down">{w}</div>)}
         {pvError && <div role="alert" className="text-[13px] lg:text-[14px] text-down">{pvError}</div>}
         {result && <div role="status" className={`rounded-2xl px-4 py-3 text-[14px] lg:text-[15px] animate-fade ${result.ok ? "bg-buybg/70 text-buy" : "bg-sellbg/70 text-sell"}`}>{result.text}</div>}
       </div>
 
-      {pv?.market_open === false && (
-        <div className="bg-soft px-6 py-4 text-[15px] lg:text-[16px] text-[#555]">
-          Market is closed. Market orders fill at the last traded price; limit and trigger orders activate when the market opens.
+      {pv?.market && !pv.market.is_open && (
+        <div className={`px-6 py-4 text-[15px] lg:text-[16px] ${pv.after_hours_mode === "REJECT" && validity === "DAY" ? "bg-sellbg/60 text-sell" : "bg-peach/70 text-[#7a4a00]"}`}>
+          <b className="font-medium">{pv.market.label}</b>{sessionHint(pv.market) ? ` · ${sessionHint(pv.market)} IST` : ""}.{" "}
+          {pv.after_hours_mode === "REJECT" && validity === "DAY"
+            ? "After-market orders are off in Settings, so orders are rejected until the market opens."
+            : "Your order will be queued as an after-market order and executes only at a fresh live price after the open, never at the last close."}
         </div>
       )}
       <div className={`border-t border-line px-6 py-4 flex items-center justify-between gap-4 bg-white ${sheet ? "sticky bottom-0 pb-[calc(16px+env(safe-area-inset-bottom))]" : ""}`}>

@@ -227,7 +227,7 @@ class Pipeline:
             t: Tick = await self.q_orders.get()
             try:
                 for iid in self._armed.get(t.key, ()):
-                    events, users = await asyncio.to_thread(paper.on_tick, iid, t.ltp, self.session_factory)
+                    events, users = await asyncio.to_thread(paper.on_tick, iid, t.ltp, self.session_factory, t.utc)
                     if events:
                         log.info("paper engine: %s", "; ".join(events), extra={"token": t.token, "symbol": t.symbol, "stage": "orders"})
                         self._notify(users, {"type": "orders_changed", "symbol": t.symbol, "events": events})

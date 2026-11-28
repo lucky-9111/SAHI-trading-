@@ -42,8 +42,12 @@ function ActionSheet({ p, ltp, accountId, onClose, onDone }: { p: PositionRow; l
   };
   const exit = () => run(async () => {
     const n = Number(qty);
-    const t = await api<{ net_pnl: string; exit_price: string }>(`${base}/exit`, { method: "POST", json: { quantity: n < p.quantity ? n : undefined } });
-    return `Exited ${n} ${p.symbol} at ${inr(t.exit_price)} · net ${inr(t.net_pnl, true)}`;
+    // the backend places a MARKET exit order: it executes now at a fresh price, or waits for the next open / is rejected while closed
+    const r = await api<{ order: { id: number; status: string; reject_reason: string | null }; trade: { net_pnl: string; exit_price: string } | null }>(
+      `${base}/exit`, { method: "POST", json: { quantity: n < p.quantity ? n : undefined } });
+    if (r.trade) return `Exited ${n} ${p.symbol} at ${inr(r.trade.exit_price)} · net ${inr(r.trade.net_pnl, true)}`;
+    if (r.order.status === "REJECTED") throw new Error(`Exit rejected: ${r.order.reject_reason}`);
+    return `Exit order #${r.order.id} for ${n} ${p.symbol} is pending. It executes at a live price when the market opens.`;
   });
   const save = () => run(async () => {
     await api(base, { method: "PATCH", json: { stop_loss: sl || undefined, target: tg || undefined, clear_stop_loss: !sl && !!p.stop_loss, clear_target: !tg && !!p.target } });

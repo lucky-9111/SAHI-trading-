@@ -280,14 +280,14 @@ def test_limit_buy_fills_on_a_tick_at_or_below_the_limit(world):
     with SessionLocal() as db:
         o = engine.place_order(db, acct_obj(db, world), db.get(Instrument, world["rel"]), side="BUY", order_type="LIMIT", product="DELIVERY",
                                quantity=10, limit_price=D("100"), stop_loss=None, target=None, strategy_id=None, idempotency_key=None)
-        assert o.status == "PENDING"
+        assert o.status == "OPEN"
     assert paper.armed()[world["rel"]] == ("NSE", "2885")
     assert paper.on_tick(world["rel"], 100.5)[0] == []                               # above the limit: nothing
     ev, users = paper.on_tick(world["rel"], 99.5)
     assert ev and users
     with SessionLocal() as db:
         o = db.scalar(select(Order))
-        assert o.status == "EXECUTED" and o.exec_price == D("99.50")                 # filled at the better (observed) price
+        assert o.status == "FILLED" and o.exec_price == D("99.50")                 # filled at the better (observed) price
         log = db.scalars(select(TradeLog)).all()
         assert [(l.event, l.reason) for l in log] == [("FILL", "ENTRY")]
 
@@ -406,9 +406,16 @@ def test_slippage_setting_is_adverse(world, monkeypatch):
 def test_stale_price_is_refused_when_the_feed_is_down(world, monkeypatch):
     monkeypatch.setattr(runtime.store, "is_stale", lambda ex, tok: True)
     with SessionLocal() as db:
-        with pytest.raises(pricing.PriceUnavailable, match="stale"):
-            engine.place_order(db, acct_obj(db, world), db.get(Instrument, world["rel"]), side="BUY", order_type="MARKET", product="DELIVERY",
+        o = engine.place_order(db, acct_obj(db, world), db.get(Instrument, world["rel"]), side="BUY", order_type="MARKET", product="DELIVERY",
                                quantity=1, limit_price=None, stop_loss=None, target=None, strategy_id=None, idempotency_key=None)
+        assert o.status == "PENDING" and o.filled_quantity == 0              # queued, never filled on the stale price
+        acc = acct_obj(db, world)
+        acc.risk.after_hours_mode = "REJECT"
+        db.commit()
+        o = engine.place_order(db, acc, db.get(Instrument, world["rel"]), side="BUY", order_type="MARKET", product="DELIVERY",
+                               quantity=1, limit_price=None, stop_loss=None, target=None, strategy_id=None, idempotency_key=None)
+        assert o.status == "REJECTED" and "stale" in o.reject_reason
+        assert db.scalar(select(func.count()).select_from(Position)) == 0
 
 
 def test_store_marks_stale_after_60s_only_while_open():

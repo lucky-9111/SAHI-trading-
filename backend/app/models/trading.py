@@ -1,11 +1,22 @@
 from datetime import datetime
 from decimal import Decimal
 
-from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Index, Integer, Numeric, String, UniqueConstraint
+from sqlalchemy import Boolean, CheckConstraint, DateTime, ForeignKey, Index, Integer, Numeric, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database.session import Base
 from app.models.core import utcnow
+
+
+# Order lifecycle (see app.trading.engine):
+#   PENDING           accepted while the market is closed (after-market order) or waiting for the first fresh live price
+#   OPEN              a limit order (or a triggered stop-loss limit) working in the session
+#   TRIGGER_PENDING   a stop-loss order waiting for its trigger price
+#   PARTIALLY_FILLED  part of the quantity executed, the rest is still working
+#   FILLED / REJECTED / CANCELLED / EXPIRED   final
+WORKING_STATUSES = ("PENDING", "OPEN", "TRIGGER_PENDING", "PARTIALLY_FILLED")
+FINAL_STATUSES = ("FILLED", "REJECTED", "CANCELLED", "EXPIRED")
+ORDER_TYPES = ("MARKET", "LIMIT", "SL", "SL-M")
 
 
 class Order(Base):
@@ -13,27 +24,38 @@ class Order(Base):
     __table_args__ = (
         UniqueConstraint("account_id", "idempotency_key"),
         Index("ix_orders_account_status", "account_id", "status"),
+        Index("ix_orders_instrument_status", "instrument_id", "status"),
         CheckConstraint("quantity > 0"),
     )
     id: Mapped[int] = mapped_column(primary_key=True)
     account_id: Mapped[int] = mapped_column(ForeignKey("trading_accounts.id", ondelete="CASCADE"), index=True)
     instrument_id: Mapped[int] = mapped_column(ForeignKey("instruments.id"))
     side: Mapped[str] = mapped_column(String(4))  # BUY / SELL
-    order_type: Mapped[str] = mapped_column(String(7))  # MARKET / LIMIT / TRIGGER (limit_price holds the trigger price)
-    product: Mapped[str] = mapped_column(String(10))  # INTRADAY / DELIVERY
+    order_type: Mapped[str] = mapped_column(String(7))  # MARKET / LIMIT / SL (stop-loss limit) / SL-M (stop-loss market)
+    product: Mapped[str] = mapped_column(String(10))  # INTRADAY / DELIVERY / SWING / NRML
     quantity: Mapped[int] = mapped_column(Integer)
-    limit_price: Mapped[Decimal | None] = mapped_column(Numeric(14, 2), nullable=True)
-    stop_loss: Mapped[Decimal | None] = mapped_column(Numeric(14, 2), nullable=True)
+    filled_quantity: Mapped[int] = mapped_column(Integer, default=0)
+    limit_price: Mapped[Decimal | None] = mapped_column(Numeric(14, 2), nullable=True)    # LIMIT and SL
+    trigger_price: Mapped[Decimal | None] = mapped_column(Numeric(14, 2), nullable=True)  # SL and SL-M
+    stop_loss: Mapped[Decimal | None] = mapped_column(Numeric(14, 2), nullable=True)      # protective levels for the resulting position
     target: Mapped[Decimal | None] = mapped_column(Numeric(14, 2), nullable=True)
-    status: Mapped[str] = mapped_column(String(10), default="PENDING")  # PENDING EXECUTING EXECUTED CANCELLED REJECTED
-    exec_price: Mapped[Decimal | None] = mapped_column(Numeric(14, 2), nullable=True)
-    reject_reason: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    status: Mapped[str] = mapped_column(String(20), default="PENDING")
+    exec_price: Mapped[Decimal | None] = mapped_column(Numeric(14, 2), nullable=True)  # average execution price of the filled quantity
+    reject_reason: Mapped[str | None] = mapped_column(String(255), nullable=True)      # also why an order was cancelled / expired
     validity: Mapped[str] = mapped_column(String(3), default="DAY")  # DAY expires at session close; GTT stays until filled/cancelled
     expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    after_market: Mapped[bool] = mapped_column(Boolean, default=False)  # placed while the exchange was closed (AMO)
+    reduce_only: Mapped[bool] = mapped_column(Boolean, default=False)   # exits (part of) an open position instead of opening one
     strategy_id: Mapped[int | None] = mapped_column(ForeignKey("strategies.id"), nullable=True)
     idempotency_key: Mapped[str | None] = mapped_column(String(64), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
-    executed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    triggered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    executed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)  # time of the latest fill
+    updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    @property
+    def remaining_quantity(self) -> int:
+        return self.quantity - (self.filled_quantity or 0)
 
 
 class Position(Base):
@@ -67,6 +89,7 @@ class Trade(Base):
     account_id: Mapped[int] = mapped_column(ForeignKey("trading_accounts.id", ondelete="CASCADE"))
     position_id: Mapped[int] = mapped_column(ForeignKey("positions.id"))
     instrument_id: Mapped[int] = mapped_column(ForeignKey("instruments.id"))
+    order_id: Mapped[int | None] = mapped_column(Integer, nullable=True)  # the exit order, when an order closed it
     side: Mapped[str] = mapped_column(String(4))  # side of the position that was closed
     quantity: Mapped[int] = mapped_column(Integer)
     entry_price: Mapped[Decimal] = mapped_column(Numeric(14, 4))

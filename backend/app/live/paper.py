@@ -1,9 +1,10 @@
 """Glue between the tick stream and the paper order engine (app.trading.engine).
 
-The engine itself (fills, ledger, positions, charges) is unchanged and already idempotent: an order flips PENDING -> EXECUTING in one atomic
-UPDATE, a position closes once. Here we only decide WHEN to call it:
-  * armed(): instruments that have something to check on a tick (pending limit / trigger orders, open positions with a stop or target);
-  * on_tick(): run engine.process_price for an armed instrument (limit, stop, target; a gap fills at the first price seen, not at the stop);
+The engine itself (fills, ledger, positions, charges) is idempotent: a fill is an atomic compare-and-swap on the order's filled quantity,
+a position closes once. Here we only decide WHEN to call it:
+  * armed(): instruments that have something to check on a tick (any working order, open positions with a stop or target);
+  * on_tick(): run engine.process_price for an armed instrument at the tick's exchange time (queued after-market orders, limit, stop,
+    target; a gap fills at the first price seen, not at the stop);
   * square_off_intraday(): INTRADAY positions are closed at the end of their exchange's session with reason EOD.
 All functions are synchronous and open their own DB session: the pipeline calls them through asyncio.to_thread.
 """
@@ -21,6 +22,7 @@ from app.database.session import SessionLocal
 from app.live import calendar
 from app.models import Order, Position, TradingAccount
 from app.models.market import Instrument
+from app.models.trading import WORKING_STATUSES
 from app.trading import engine
 
 log = logging.getLogger(__name__)
@@ -30,7 +32,7 @@ UTC, IST = calendar.UTC, calendar.IST
 def armed(session_factory=SessionLocal) -> dict[int, tuple[str, str]]:
     """instrument_id -> (exchange, token) for everything that needs a price check on each tick."""
     with session_factory() as db:
-        ids = set(db.scalars(select(Order.instrument_id).where(Order.status == "PENDING", Order.order_type.in_(["LIMIT", "TRIGGER"]))))
+        ids = set(db.scalars(select(Order.instrument_id).where(Order.status.in_(WORKING_STATUSES))))
         ids |= set(db.scalars(select(Position.instrument_id).where(Position.status == "OPEN",
                                                                    (Position.stop_loss.is_not(None)) | (Position.target.is_not(None)))))
         if not ids:
@@ -42,7 +44,7 @@ def open_position_tokens(session_factory=SessionLocal) -> set[tuple[str, str]]:
     """Tokens to keep subscribed because money is at risk in them (any open position or pending order)."""
     with session_factory() as db:
         ids = set(db.scalars(select(Position.instrument_id).where(Position.status == "OPEN")))
-        ids |= set(db.scalars(select(Order.instrument_id).where(Order.status == "PENDING")))
+        ids |= set(db.scalars(select(Order.instrument_id).where(Order.status.in_(WORKING_STATUSES))))
         if not ids:
             return set()
         return {(i.exchange, i.token) for i in db.scalars(select(Instrument).where(Instrument.id.in_(ids)))}
@@ -56,10 +58,10 @@ def users_of_instrument(db, instrument_id: int) -> set[int]:
     return set(db.scalars(select(TradingAccount.user_id).where(TradingAccount.id.in_(accs))))
 
 
-def on_tick(instrument_id: int, price: float, session_factory=SessionLocal) -> tuple[list[str], set[int]]:
-    """Apply one observed price. Returns (event texts, user ids to notify)."""
+def on_tick(instrument_id: int, price: float, session_factory=SessionLocal, at: dt.datetime | None = None) -> tuple[list[str], set[int]]:
+    """Apply one observed price (`at` = the exchange time of that trade). Returns (event texts, user ids to notify)."""
     with session_factory() as db:
-        events = engine.process_price(db, instrument_id, Decimal(str(price)))
+        events = engine.process_price(db, instrument_id, Decimal(str(price)), at=at)
         users = users_of_instrument(db, instrument_id) if events else set()
     return events, users
 

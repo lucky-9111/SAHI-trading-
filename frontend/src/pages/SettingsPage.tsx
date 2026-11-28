@@ -1,4 +1,5 @@
 import CreateAccount from "../components/CreateAccount";
+import OrderSettings from "../components/OrderSettings";
 import { BackBar, PageTitle } from "../components/ui";
 import { useAuth } from "../contexts/AuthContext";
 import { inr } from "../utils/format";
@@ -26,6 +27,7 @@ export default function SettingsPage() {
             ))}
           </div>
         </div>
+        <OrderSettings />
         <CreateAccount />
       </div>
     </div>

@@ -5,7 +5,7 @@ import pytest
 
 from app.database.session import SessionLocal
 from app.market_data.instrument_master import sync_nse_equities
-from app.trading import engine, pricing
+from app.trading import engine, market_status, pricing
 from app.trading.charges import estimate_charges
 from tests.conftest import register
 from tests.test_instruments import ROWS
@@ -23,7 +23,13 @@ def px(monkeypatch):
             raise pricing.PriceUnavailable("feed down")
         return pricing.PriceQuote(state["price"], datetime.now(), state["open"])
 
+    def fake_exec(inst, at=None):
+        if state["fail"]:
+            raise pricing.PriceUnavailable("feed down")
+        return pricing.ExecQuote(state["price"], market_status.now(), "test")
+
     monkeypatch.setattr(pricing, "get_price", fake)
+    monkeypatch.setattr(pricing, "execution_quote", fake_exec)
     return state
 
 
@@ -57,7 +63,7 @@ def test_charges_are_estimated_per_leg():
 
 def test_market_buy_debits_funds_and_opens_position(client, auth, acct, px):
     r = order(client, auth, acct, stop_loss="950", target="1100")
-    assert r.status_code == 201 and r.json()["status"] == "EXECUTED" and r.json()["exec_price"] == "1000.00"
+    assert r.status_code == 201 and r.json()["status"] == "FILLED" and r.json()["exec_price"] == "1000.00"
     ch = estimate_charges("INTRADAY", "BUY", D("100000"))
     assert balance(client, auth, acct) == D("1000000") - D("100000") - ch
     p = positions(client, auth, acct)
@@ -69,7 +75,7 @@ def test_manual_exit_credits_funds_and_records_trade(client, auth, acct, px):
     order(client, auth, acct)
     px["price"] = D("1010")
     pid = positions(client, auth, acct)[0]["id"]
-    t = client.post(f"/api/accounts/{acct}/positions/{pid}/exit", json={}, headers=auth).json()
+    t = client.post(f"/api/accounts/{acct}/positions/{pid}/exit", json={}, headers=auth).json()["trade"]
     assert D(t["gross_pnl"]) == D("1000.00") and t["exit_reason"] == "MANUAL"
     assert D(t["net_pnl"]) == D(t["gross_pnl"]) - D(t["charges"])
     # Ledger invariant: balance change == net P&L exactly
@@ -81,7 +87,7 @@ def test_short_sell_profit_when_price_falls(client, auth, acct, px):
     order(client, auth, acct, side="SELL", stop_loss="1050", target="900")
     px["price"] = D("990")
     pid = positions(client, auth, acct)[0]["id"]
-    t = client.post(f"/api/accounts/{acct}/positions/{pid}/exit", json={}, headers=auth).json()
+    t = client.post(f"/api/accounts/{acct}/positions/{pid}/exit", json={}, headers=auth).json()["trade"]
     assert D(t["gross_pnl"]) == D("1000.00")
     assert balance(client, auth, acct) == D("1000000") + D(t["net_pnl"])
 
@@ -90,9 +96,9 @@ def test_partial_exit_then_full_exit_is_exact(client, auth, acct, px):
     order(client, auth, acct, quantity=101)
     pid = positions(client, auth, acct)[0]["id"]
     px["price"] = D("1003.33")
-    t1 = client.post(f"/api/accounts/{acct}/positions/{pid}/exit", json={"quantity": 40}, headers=auth).json()
+    t1 = client.post(f"/api/accounts/{acct}/positions/{pid}/exit", json={"quantity": 40}, headers=auth).json()["trade"]
     assert positions(client, auth, acct)[0]["quantity"] == 61
-    t2 = client.post(f"/api/accounts/{acct}/positions/{pid}/exit", json={}, headers=auth).json()
+    t2 = client.post(f"/api/accounts/{acct}/positions/{pid}/exit", json={}, headers=auth).json()["trade"]
     assert positions(client, auth, acct) == []
     net = D(t1["net_pnl"]) + D(t2["net_pnl"])
     assert balance(client, auth, acct) == D("1000000") + net  # no paisa lost to rounding
@@ -123,8 +129,12 @@ def test_insufficient_funds_rejects_order_without_touching_balance(client, auth,
 
 def test_no_price_means_no_market_order(client, auth, acct, px):
     px["fail"] = True
-    assert order(client, auth, acct).status_code == 503
-    assert client.get(f"/api/accounts/{acct}/orders", headers=auth).json() == []
+    r = order(client, auth, acct).json()                                   # default (queue): waits for the first fresh price
+    assert r["status"] == "PENDING" and r["filled_quantity"] == 0 and r["exec_price"] is None
+    client.put(f"/api/accounts/{acct}/order-settings", json={"after_hours_mode": "REJECT"}, headers=auth)
+    r = order(client, auth, acct).json()                                   # reject mode: recorded as rejected, never filled
+    assert r["status"] == "REJECTED" and "No fresh market price" in r["reject_reason"]
+    assert positions(client, auth, acct) == [] and balance(client, auth, acct) == D("1000000")
 
 
 def test_duplicate_idempotency_key_does_not_double_execute(client, auth, acct, px):
@@ -176,14 +186,14 @@ def test_target_hit_closes_long_and_short(client, auth, acct, px):
 
 def test_limit_order_stays_pending_then_fills_and_can_cancel(client, auth, acct, px):
     r = order(client, auth, acct, order_type="LIMIT", limit_price="980").json()
-    assert r["status"] == "PENDING"
+    assert r["status"] == "OPEN"
     with SessionLocal() as db:
         iid = db.scalar(engine.select(engine.Instrument.id).where(engine.Instrument.symbol == "RELIANCE"))
         assert engine.process_price(db, iid, D("985")) == []
         ev = engine.process_price(db, iid, D("975"))  # price improved below limit
         assert ev and engine.process_price(db, iid, D("970")) == []  # cannot fill twice
     o = client.get(f"/api/accounts/{acct}/orders", headers=auth).json()[0]
-    assert o["status"] == "EXECUTED" and o["exec_price"] == "975.00"
+    assert o["status"] == "FILLED" and o["exec_price"] == "975.00"
     r2 = order(client, auth, acct, order_type="LIMIT", limit_price="900").json()
     c = client.post(f"/api/accounts/{acct}/orders/{r2['id']}/cancel", headers=auth)
     assert c.json()["status"] == "CANCELLED"
@@ -192,21 +202,21 @@ def test_limit_order_stays_pending_then_fills_and_can_cancel(client, auth, acct,
 
 def test_trigger_buy_waits_for_price_to_rise_and_fills_at_observed_price(client, auth, acct, px):
     r = order(client, auth, acct, order_type="TRIGGER", limit_price="1020").json()
-    assert r["status"] == "PENDING" and r["validity"] == "DAY"
+    assert r["status"] == "TRIGGER_PENDING" and r["validity"] == "DAY" and r["order_type"] == "SL-M" and r["trigger_price"] == "1020.00"
     with SessionLocal() as db:
         iid = db.scalar(engine.select(engine.Instrument.id).where(engine.Instrument.symbol == "RELIANCE"))
         assert engine.process_price(db, iid, D("1010")) == []  # below trigger: nothing
         assert engine.process_price(db, iid, D("1035"))  # gapped through the trigger
         assert engine.process_price(db, iid, D("1040")) == []  # cannot fill twice
     o = client.get(f"/api/accounts/{acct}/orders", headers=auth).json()[0]
-    assert o["status"] == "EXECUTED" and o["exec_price"] == "1035.00"
+    assert o["status"] == "FILLED" and o["exec_price"] == "1035.00"
 
 
 def test_trigger_sell_fires_on_fall_and_direction_is_validated(client, auth, acct, px):
     assert order(client, auth, acct, side="SELL", order_type="TRIGGER", limit_price="1010").status_code == 400
     assert order(client, auth, acct, order_type="TRIGGER", limit_price="990").status_code == 400
     assert order(client, auth, acct, order_type="TRIGGER").status_code == 400  # trigger price required
-    assert order(client, auth, acct, side="SELL", order_type="TRIGGER", limit_price="980").json()["status"] == "PENDING"
+    assert order(client, auth, acct, side="SELL", order_type="TRIGGER", limit_price="980").json()["status"] == "TRIGGER_PENDING"
     with SessionLocal() as db:
         iid = db.scalar(engine.select(engine.Instrument.id).where(engine.Instrument.symbol == "RELIANCE"))
         assert engine.process_price(db, iid, D("985")) == []
@@ -218,13 +228,13 @@ def test_day_orders_expire_but_gtt_orders_stay(client, auth, acct, px):
     day = order(client, auth, acct, order_type="LIMIT", limit_price="900", product="DELIVERY").json()
     gtt = order(client, auth, acct, order_type="LIMIT", limit_price="880", product="DELIVERY", validity="GTT").json()
     assert day["expires_at"] is not None and gtt["expires_at"] is None and gtt["validity"] == "GTT"
-    from datetime import datetime, timedelta, timezone
+    from datetime import timedelta
     with SessionLocal() as db:
-        assert engine.expire_orders(db, datetime.now(timezone.utc)) == 0  # session has not ended yet
-        assert engine.expire_orders(db, datetime.now(timezone.utc) + timedelta(days=5)) == 1
+        assert engine.expire_orders(db, market_status.now()) == 0  # session has not ended yet
+        assert engine.expire_orders(db, market_status.now() + timedelta(days=5)) == 1
     st = {o["id"]: o for o in client.get(f"/api/accounts/{acct}/orders", headers=auth).json()}
-    assert st[day["id"]]["status"] == "CANCELLED" and st[day["id"]]["reject_reason"] == "Day order expired"
-    assert st[gtt["id"]]["status"] == "PENDING"
+    assert st[day["id"]]["status"] == "EXPIRED" and st[day["id"]]["reject_reason"] == "Day order expired at market close"
+    assert st[gtt["id"]]["status"] == "OPEN"
 
 
 def test_intraday_gtt_is_rejected(client, auth, acct, px):
@@ -243,7 +253,7 @@ def test_session_close_rolls_to_next_weekday():
 
 def test_marketable_limit_fills_immediately(client, auth, acct, px):
     r = order(client, auth, acct, order_type="LIMIT", limit_price="1005").json()
-    assert r["status"] == "EXECUTED" and r["exec_price"] == "1000.00"
+    assert r["status"] == "FILLED" and r["exec_price"] == "1000.00"
 
 
 def test_preview_calculates_quantity_from_risk(client, auth, acct, px):

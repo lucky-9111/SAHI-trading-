@@ -43,7 +43,7 @@ def test_strategy_travels_with_order_position_and_trade(client, auth, acct, px):
     p = positions(client, auth, acct)[0]
     assert p["strategy"] == "GFS"
     px["price"] = D("1010")
-    t = client.post(f"/api/accounts/{acct}/positions/{p['id']}/exit", json={}, headers=auth).json()
+    t = client.post(f"/api/accounts/{acct}/positions/{p['id']}/exit", json={}, headers=auth).json()["trade"]
     assert t["strategy"] == "GFS"
     assert client.get(f"/api/accounts/{acct}/orders", headers=auth).json()[0]["strategy"] == "GFS"
 

@@ -5,7 +5,12 @@ import { api, tokenStore } from "../services/api";
  *  plus feed status (connected / stale / reconnecting / closed / replay) and "orders_changed" events. Reconnects by itself (1, 2, 4 ... 30 s). */
 export interface WsTick { k: string; ltp: number; ts: number; state: string; at: number }
 export type FeedState = "connected" | "stale" | "reconnecting" | "closed" | "replay" | "offline"
+export interface AppNotification {
+  id: number; kind: string; level: "info" | "success" | "warning" | "error"; title: string; body: string;
+  order_id: number | null; account_id: number | null; is_read: boolean; created_at: string;
+}
 type Msg = { type: "tick" } & Omit<WsTick, "at"> | { type: "feed"; state: FeedState; last_tick_age_s: number | null } | { type: "orders_changed"; events?: string[] }
+  | { type: "notification"; notification: AppNotification }
 
 class LiveSocket {
   private ws: WebSocket | null = null
@@ -13,6 +18,7 @@ class LiveSocket {
   private tickL = new Set<(t: WsTick) => void>()
   private feedL = new Set<(s: FeedState) => void>()
   private ordersL = new Set<() => void>()
+  private noteL = new Set<(n: AppNotification) => void>()
   private backoff = 1000
   feed: FeedState = "offline"
   open = false
@@ -47,13 +53,17 @@ class LiveSocket {
         this.feed = m.state
         this.feedL.forEach((f) => f(m.state))
       } else if (m.type === "orders_changed") this.ordersL.forEach((f) => f())
+      else if (m.type === "notification") {
+        this.noteL.forEach((f) => f(m.notification))
+        this.ordersL.forEach((f) => f())
+      }
     }
     ws.onclose = () => {
       this.ws = null
       this.open = false
       this.feed = "offline"
       this.feedL.forEach((f) => f("offline"))
-      if (this.refs.size || this.feedL.size || this.ordersL.size) {
+      if (this.refs.size || this.feedL.size || this.ordersL.size || this.noteL.size) {
         setTimeout(() => this.connect(), this.backoff)
         this.backoff = Math.min(this.backoff * 2, 30000)
       }
@@ -83,6 +93,7 @@ class LiveSocket {
   onTick(f: (t: WsTick) => void) { this.tickL.add(f); return () => { this.tickL.delete(f) } }
   onFeed(f: (s: FeedState) => void) { this.connect(); this.feedL.add(f); return () => { this.feedL.delete(f) } }
   onOrders(f: () => void) { this.connect(); this.ordersL.add(f); return () => { this.ordersL.delete(f) } }
+  onNotification(f: (n: AppNotification) => void) { this.connect(); this.noteL.add(f); return () => { this.noteL.delete(f) } }
 }
 
 export const live = new LiveSocket()

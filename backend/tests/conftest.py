@@ -5,12 +5,29 @@ os.environ["DATABASE_URL"] = "sqlite:///./test_agroup.db"
 os.environ["DISABLE_AUTO_SYNC"] = "1"
 os.environ["DISABLE_ENGINE"] = "1"
 os.environ["SECRET_KEY"] = "test-secret-key-for-pytest-only-0123456789"
+os.environ["PAPER_DEPTH_FILLS"] = "0"          # tests that need market depth patch pricing.depth themselves
 
 import pytest
 from fastapi.testclient import TestClient
 
 from app.database.session import Base, engine
 from app.main import app
+
+
+# The engine's clock in every test: Friday 27 Nov 2026, 09:30 IST (NSE open). Tests about closed markets move it.
+TRADING_TIME = __import__("datetime").datetime(2026, 11, 27, 9, 30, tzinfo=__import__("zoneinfo").ZoneInfo("Asia/Kolkata"))
+
+
+@pytest.fixture(autouse=True)
+def market_clock():
+    from app.live import calendar
+    from app.trading import market_status, pricing
+
+    market_status.set_clock(TRADING_TIME)
+    pricing._fcache.clear()
+    yield market_status.set_clock
+    market_status.set_clock(None)
+    calendar.invalidate()
 
 
 @pytest.fixture()

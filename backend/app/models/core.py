@@ -67,6 +67,10 @@ class RiskSettings(Base):
     max_weekly_loss: Mapped[Decimal | None] = mapped_column(Numeric(18, 2), nullable=True)
     max_open_positions: Mapped[int] = mapped_column(Integer, default=10)
     strict_protection: Mapped[bool] = mapped_column(Boolean, default=False)
+    # order handling while the exchange is closed: QUEUE (after-market order, executes at the next open) or REJECT
+    after_hours_mode: Mapped[str] = mapped_column(String(6), default="QUEUE")
+    # adverse slippage % on market / stop-market fills; None = the PAPER_SLIPPAGE_PCT server default
+    slippage_pct: Mapped[Decimal | None] = mapped_column(Numeric(6, 3), nullable=True)
     account: Mapped[TradingAccount] = relationship(back_populates="risk")
 
 
@@ -86,9 +90,15 @@ class Strategy(Base):
 
 
 class Notification(Base):
+    """User notifications. Order events (kind ORDER_*) double as each order's status history."""
+
     __tablename__ = "notifications"
     id: Mapped[int] = mapped_column(primary_key=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    account_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    order_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
+    kind: Mapped[str] = mapped_column(String(30), default="")
+    level: Mapped[str] = mapped_column(String(10), default="info")  # info | success | warning | error
     title: Mapped[str] = mapped_column(String(200))
     body: Mapped[str] = mapped_column(Text, default="")
     is_read: Mapped[bool] = mapped_column(Boolean, default=False)

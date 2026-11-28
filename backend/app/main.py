@@ -11,11 +11,12 @@ from sqlalchemy import text
 import os
 import threading
 
-from app.api import accounts, auth, dashboard, derivatives, instruments, market, trading, watchlists
+from app.api import accounts, auth, dashboard, derivatives, instruments, market, notifications, trading, watchlists
 from app.live import runtime, ws as live_ws
 from app.core.config import get_settings
 from app.database.session import Base, engine, ensure_columns
 import app.models  # noqa: F401  (register models)
+import app.trading.notify  # noqa: F401  (order notifications are pushed after each commit)
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 
@@ -71,7 +72,7 @@ app.add_middleware(TrustedHostMiddleware, allowed_hosts=settings.trusted_host_li
 
 for r in (auth.router, accounts.router, dashboard.router, instruments.router, market.router, trading.router,
           trading.strategies_router, watchlists.router,
-          derivatives.router):
+          derivatives.router, notifications.router):
     app.include_router(r)
 
 

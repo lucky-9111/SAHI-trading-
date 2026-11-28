@@ -62,7 +62,7 @@ def test_future_requires_whole_lots(client, auth, fno, px):  # noqa: F811
 def test_future_blocks_margin_not_full_value_and_round_trip_is_exact(client, auth, fno, px):  # noqa: F811
     px["price"] = D("26000")
     r = fo_order(client, auth, fno, FUT)
-    assert r.json()["status"] == "EXECUTED"
+    assert r.json()["status"] == "FILLED"
     notional = D("26000") * 75
     margin = notional * FUT_MARGIN_PCT
     ch = estimate_charges("NRML", "BUY", notional, "FUT")
@@ -71,7 +71,7 @@ def test_future_blocks_margin_not_full_value_and_round_trip_is_exact(client, aut
     assert p["invested_amount"] == f"{margin:.2f}" and p["avg_price"] == "26000.00" and p["instrument_type"] == "FUT"
     px["price"] = D("26100")
     assert positions(client, auth, fno)[0]["unrealized_pnl"] == "7500.00"  # 100 pts x 75
-    t = client.post(f"/api/accounts/{fno}/positions/{p['id']}/exit", json={}, headers=auth).json()
+    t = client.post(f"/api/accounts/{fno}/positions/{p['id']}/exit", json={}, headers=auth).json()["trade"]
     assert t["gross_pnl"] == "7500.00"
     assert balance(client, auth, fno) == D("1000000") + D(t["net_pnl"])
 
@@ -81,7 +81,7 @@ def test_short_future_profits_when_price_falls(client, auth, fno, px):  # noqa: 
     fo_order(client, auth, fno, FUT, side="SELL")
     px["price"] = D("25900")
     pid = positions(client, auth, fno)[0]["id"]
-    t = client.post(f"/api/accounts/{fno}/positions/{pid}/exit", json={}, headers=auth).json()
+    t = client.post(f"/api/accounts/{fno}/positions/{pid}/exit", json={}, headers=auth).json()["trade"]
     assert t["gross_pnl"] == "7500.00" and balance(client, auth, fno) == D("1000000") + D(t["net_pnl"])
 
 
@@ -93,27 +93,30 @@ def test_long_option_costs_full_premium(client, auth, fno, px):  # noqa: F811
     assert balance(client, auth, fno) == D("1000000") - prem - ch
     px["price"] = D("0.05")  # can lose at most the premium
     pid = positions(client, auth, fno)[0]["id"]
-    t = client.post(f"/api/accounts/{fno}/positions/{pid}/exit", json={}, headers=auth).json()
+    t = client.post(f"/api/accounts/{fno}/positions/{pid}/exit", json={}, headers=auth).json()["trade"]
     assert D(t["gross_pnl"]) == (D("0.05") - D("120")) * 75
 
 
 def test_writing_option_blocks_margin_on_strike_value(client, auth, fno, px):  # noqa: F811
     px["price"] = D("100")
     r = fo_order(client, auth, fno, PE, side="SELL")
-    assert r.json()["status"] == "EXECUTED"
+    assert r.json()["status"] == "FILLED"
     margin = D("26000") * 75 * OPT_SELL_MARGIN_PCT
     ch = estimate_charges("NRML", "SELL", D("100") * 75, "OPT")
     assert balance(client, auth, fno) == D("1000000") - margin - ch
     px["price"] = D("80")  # premium decays: writer profits
     pid = positions(client, auth, fno)[0]["id"]
-    t = client.post(f"/api/accounts/{fno}/positions/{pid}/exit", json={}, headers=auth).json()
+    t = client.post(f"/api/accounts/{fno}/positions/{pid}/exit", json={}, headers=auth).json()["trade"]
     assert t["gross_pnl"] == "1500.00" and balance(client, auth, fno) == D("1000000") + D(t["net_pnl"])
 
 
 def test_product_rules(client, auth, fno, px):  # noqa: F811
     px["price"] = D("1000")
-    assert order(client, auth, fno, product="SWING").json()["status"] == "EXECUTED"
-    assert order(client, auth, fno, product="SWING", side="SELL").status_code == 400  # no short in swing
+    assert order(client, auth, fno, product="SWING", side="SELL").status_code == 400  # no short in swing (flat)
+    assert order(client, auth, fno, product="SWING").json()["status"] == "FILLED"
+    exit_ = order(client, auth, fno, product="SWING", side="SELL").json()             # holding a long: a SELL is an exit order
+    assert exit_["status"] == "FILLED" and exit_["reduce_only"] is True
+    assert order(client, auth, fno, product="SWING", side="SELL").status_code == 400  # flat again: no short
     assert order(client, auth, fno, product="NRML").status_code == 400  # NRML is F&O only
     assert fo_order(client, auth, fno, FUT, product="DELIVERY").status_code == 400
 
@@ -175,7 +178,7 @@ def test_chart_button_targets_the_stock_or_the_fno_underlying(client, auth, fno,
     assert (orders["RELIANCE"]["chart_symbol"], orders["RELIANCE"]["chart_exchange"]) == ("RELIANCE", "NSE")
     pos = {p["symbol"]: p for p in positions(client, auth, fno)}
     assert pos[FUT]["chart_symbol"] == "NIFTY" and pos["RELIANCE"]["chart_symbol"] == "RELIANCE"
-    t = client.post(f"/api/accounts/{fno}/positions/{pos[FUT]['id']}/exit", json={}, headers=auth).json()
+    t = client.post(f"/api/accounts/{fno}/positions/{pos[FUT]['id']}/exit", json={}, headers=auth).json()["trade"]
     assert t["chart_symbol"] == "NIFTY"
 
 

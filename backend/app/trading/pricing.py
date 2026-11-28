@@ -1,7 +1,7 @@
 """Single source of prices for the paper engine. Never invents a price: raises PriceUnavailable instead."""
 import time
 from dataclasses import dataclass
-from datetime import datetime, time as dtime
+from datetime import datetime, time as dtime, timezone
 from decimal import Decimal
 from zoneinfo import ZoneInfo
 
@@ -37,10 +37,10 @@ def session_hours(exchange: str = "NSE", day=None) -> tuple[dtime, dtime]:
 
 
 def is_market_open(now: datetime | None = None, exchange: str = "NSE") -> bool:
-    """Open per the market calendar: weekends, holidays, special sessions and late opens included."""
-    from app.live import calendar
+    """Open per the market calendar: weekends, holidays, special sessions and late opens included (the backend clock decides)."""
+    from app.trading import market_status
 
-    return calendar.is_open(exchange, now or datetime.now(IST))
+    return market_status.is_open(exchange, now)
 
 
 @dataclass(frozen=True)
@@ -97,8 +97,9 @@ def session_close(now: datetime | None = None, exchange: str = "NSE") -> datetim
     """When a DAY order placed at `now` expires: the end of the current session if it has not ended yet, otherwise of the next trading
     day (weekends, holidays, special sessions and late opens come from the market calendar)."""
     from app.live import calendar
+    from app.trading import market_status
 
-    return calendar.next_close(exchange, now or datetime.now(IST)).astimezone(IST)
+    return calendar.next_close(exchange, now or market_status.now()).astimezone(IST)
 
 
 def get_price(instrument: Instrument, max_age: float = CACHE_TTL) -> PriceQuote:
@@ -124,3 +125,105 @@ def get_price(instrument: Instrument, max_age: float = CACHE_TTL) -> PriceQuote:
     quote = PriceQuote(ltp, datetime.now(IST), is_market_open(exchange=instrument.exchange))
     _cache[key] = (time.time(), quote)
     return quote
+
+
+# ---------------------------------------------------------------------------------------------------------------- execution prices
+@dataclass(frozen=True)
+class ExecQuote:
+    """A price the paper engine may fill on: it traded in the CURRENT session of the instrument's exchange.
+
+    bids / asks are the broker's best 5 levels (price, quantity), best first; empty when no fresh depth was available."""
+    ltp: Decimal
+    at: datetime                                   # UTC time of the trade behind `ltp`
+    source: str                                    # "tick" (websocket) | "rest" (quote API) | "test"
+    bids: tuple[tuple[Decimal, int], ...] = ()
+    asks: tuple[tuple[Decimal, int], ...] = ()
+
+
+FULL_TTL = 2.0
+TRADE_TIME_FMT = "%d-%b-%Y %H:%M:%S"               # Angel quote API: exchTradeTime "27-Nov-2026 15:29:59" (IST)
+_fcache: dict[str, tuple[float, dict | None]] = {}
+
+
+def _full_quote(inst: Instrument) -> dict | None:
+    """The broker's FULL quote row (ltp, last trade time, 5-level depth) of one instrument; None when unavailable. Cached 2 s."""
+    key = f"{inst.exchange}:{inst.token}"
+    hit = _fcache.get(key)
+    if hit and time.time() - hit[0] <= FULL_TTL:
+        return hit[1]
+    row = None
+    try:
+        rows = angel.provider.get_market_data({inst.exchange: [str(inst.token)]})
+        row = next((r for r in rows if str(r.get("symbolToken")) == str(inst.token)), None)
+    except ProviderError:
+        row = None
+    _fcache[key] = (time.time(), row)
+    return row
+
+
+def trade_time(row: dict) -> datetime | None:
+    raw = (row or {}).get("exchTradeTime") or ""
+    try:
+        return datetime.strptime(str(raw).strip(), TRADE_TIME_FMT).replace(tzinfo=IST).astimezone(timezone.utc)
+    except ValueError:
+        return None
+
+
+def _levels(rows) -> tuple[tuple[Decimal, int], ...]:
+    out = []
+    for lv in rows or []:
+        try:
+            p, q = Decimal(str(lv.get("price") or 0)), int(float(lv.get("quantity") or 0))
+        except (ArithmeticError, ValueError, TypeError):
+            continue
+        if p > 0 and q > 0:
+            out.append((p, q))
+    return tuple(out)
+
+
+def depth(inst: Instrument, session_start: datetime) -> tuple[tuple, tuple]:
+    """(bids, asks) from the broker's quote when it is from the current session, else ((), ()). Never raises.
+    Off when PAPER_DEPTH_FILLS=false (then every fill takes the full quantity at the last traded price)."""
+    from app.core.config import get_settings
+
+    if not get_settings().paper_depth_fills:
+        return (), ()
+    row = _full_quote(inst)
+    t = trade_time(row) if row else None
+    if t is None or t < session_start:
+        return (), ()
+    d = row.get("depth") or {}
+    return _levels(d.get("buy")), _levels(d.get("sell"))
+
+
+def execution_quote(inst: Instrument, at: datetime | None = None) -> ExecQuote:
+    """The first price that is safe to execute on, or PriceUnavailable. Rules:
+      * the exchange must be in session (market status engine);
+      * a websocket tick counts only if it traded in TODAY'S session (yesterday's last tick is not a price);
+      * otherwise the broker quote API, and only if its last-trade time is inside today's session: right after the open the broker still
+        reports the previous close as LTP, and that must never become an execution price;
+      * nothing is used while the feed is down and the stored price is stale."""
+    from app.live import calendar, runtime
+    from app.trading import market_status
+
+    n = (at or market_status.now()).astimezone(timezone.utc)
+    b = calendar.session_bounds(inst.exchange, n.astimezone(IST).date())
+    if not b or not (b[0] <= n <= b[1]):
+        raise PriceUnavailable("The market is closed")
+    start = b[0]
+    if runtime.untrusted(inst.exchange, inst.token):
+        raise PriceUnavailable("Price feed is stale (no ticks while the market is open); refusing to fill on an old price")
+    tick = runtime.store.get(inst.exchange, inst.token)
+    if tick is not None and tick.ltp > 0 and tick.utc >= start:
+        return ExecQuote(Decimal(str(tick.ltp)), tick.utc, "tick")
+    row = _full_quote(inst)
+    if row is None:
+        raise PriceUnavailable("No live quote from the broker")
+    t = trade_time(row)
+    ltp = Decimal(str(row.get("ltp") or 0))
+    if t is None or t < start:
+        raise PriceUnavailable("No trade yet in the current session (the broker still shows the previous close)")
+    if ltp <= 0:
+        raise PriceUnavailable("Provider returned an invalid price")
+    d = row.get("depth") or {}
+    return ExecQuote(ltp, t, "rest", _levels(d.get("buy")), _levels(d.get("sell")))

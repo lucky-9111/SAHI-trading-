@@ -144,4 +144,4 @@ def place_signal(b: Binding, sig: Signal, c: Candle, session_factory=SessionLoca
         except Exception as e:  # noqa: BLE001  (TradingError, PriceUnavailable ...)
             log.warning("signal refused (%s %s): %s", b.strategy.name, inst.symbol, e)
             return str(e)
-        return o.status      # EXECUTED / PENDING / REJECTED; a repeated key returns the order that already exists
+        return o.status      # FILLED / PENDING / REJECTED ...; a repeated key returns the order that already exists

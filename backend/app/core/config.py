@@ -19,6 +19,9 @@ class Settings(BaseSettings):
     default_capital: str = "1000000"
     # paper-fill realism: adverse slippage in % applied to MARKET fills, trigger (stop) entries and stop-loss exits
     paper_slippage_pct: str = "0"
+    # fill against the broker's 5-level bid/ask depth when a fresh quote has it (BUY at the asks, SELL at the bids, partial fills when the
+    # visible size is smaller than the order). Off = every fill takes the full quantity at the last traded price
+    paper_depth_fills: bool = True
     # intraday positions are squared off this many minutes before the exchange's session end (0 = at the end)
     intraday_squareoff_minutes_before_close: int = 0
     # "live" = Angel websocket, "replay" = ticks from a recorded file (see scripts/replay.py), "off" = no pipeline

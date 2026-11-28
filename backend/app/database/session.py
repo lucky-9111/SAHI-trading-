@@ -29,7 +29,13 @@ _NEW_COLUMNS = {
     "instruments": [("underlying", "VARCHAR(50)"), ("expiry", "DATE"), ("strike", "NUMERIC(12,2)"),
                     ("option_type", "VARCHAR(2)")],
     "positions": [("entry_value", "NUMERIC(18,2) DEFAULT 0")],
-    "orders": [("validity", "VARCHAR(3) DEFAULT 'DAY'"), ("expires_at", "DATETIME")],
+    "orders": [("validity", "VARCHAR(3) DEFAULT 'DAY'"), ("expires_at", "DATETIME"), ("trigger_price", "NUMERIC(14,2)"),
+               ("filled_quantity", "INTEGER DEFAULT 0"), ("after_market", "BOOLEAN DEFAULT 0"), ("reduce_only", "BOOLEAN DEFAULT 0"),
+               ("triggered_at", "DATETIME"), ("updated_at", "DATETIME")],
+    "trades": [("order_id", "INTEGER")],
+    "notifications": [("account_id", "INTEGER"), ("order_id", "INTEGER"), ("kind", "VARCHAR(30) DEFAULT ''"),
+                      ("level", "VARCHAR(10) DEFAULT 'info'")],
+    "risk_settings": [("after_hours_mode", "VARCHAR(6) DEFAULT 'QUEUE'"), ("slippage_pct", "NUMERIC(6,3)")],
 }
 
 
@@ -52,6 +58,9 @@ def ensure_columns() -> None:
         if insp.has_table("positions"):
             conn.execute(text("UPDATE positions SET entry_value = invested_amount "
                               "WHERE entry_value IS NULL OR entry_value = 0"))
+    from app.database import migrations
+
+    migrations.run(engine)
 
 
 def get_db():

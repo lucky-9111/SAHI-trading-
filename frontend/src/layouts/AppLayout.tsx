@@ -1,6 +1,8 @@
 import { BarChart3, BookOpen, FileText, History, IndianRupee, LogOut, ScanSearch, Search, Settings, User, Wallet } from "lucide-react";
 import { Link, NavLink, Outlet, useLocation, useSearchParams } from "react-router-dom";
 import { AppMark, HomeIcon, OrdersIcon, PortfolioIcon, TradeIcon, WatchIcon } from "../components/art";
+import { MarketBar, MarketPill } from "../components/MarketStatus";
+import { NotificationBell, NotificationCenter } from "../components/Notifications";
 import SearchOverlay, { openSearch } from "../components/search";
 import { useAuth } from "../contexts/AuthContext";
 import { inr } from "../utils/format";
@@ -25,7 +27,7 @@ const MORE = [
 
 function FeedDot() {
   const ws = useFeedState();
-  const label = ws === "connected" ? "Live" : ws === "stale" ? "Stale" : ws === "reconnecting" || ws === "offline" ? "Connecting" : ws === "replay" ? "Replay" : "Market closed";
+  const label = ws === "connected" ? "Live" : ws === "stale" ? "Stale" : ws === "reconnecting" || ws === "offline" ? "Connecting" : ws === "replay" ? "Replay" : "Feed idle";
   const dot = ws === "connected" ? "bg-up" : ws === "stale" || ws === "reconnecting" ? "bg-amber-400" : ws === "replay" ? "bg-blue-500" : "bg-faint";
   return <span className="inline-flex items-center gap-2 text-[12px] lg:text-[13px] text-muted"><span className={`h-2 w-2 rounded-full ${dot} ${ws === "connected" ? "animate-pulse" : ""}`} />{label}</span>;
 }
@@ -85,8 +87,10 @@ function DesktopChrome() {
         <button onClick={() => openSearch()} className="flex-1 max-w-[520px] h-12 flex items-center gap-3 rounded-full border border-line px-5 text-left text-[15px] lg:text-[16px] text-faint hover:border-[#cfcfcf] transition-colors">
           <Search size={20} className="text-ink" />Search SAHI
         </button>
+        <MarketPill />
         <FeedDot />
         <div className="flex-1" />
+        <NotificationBell />
         {accounts.length > 1 && (
           <select aria-label="Portfolio" className="h-11 rounded-full border border-line px-4 text-[13px] lg:text-[14px] bg-white" value={accountId ?? ""} onChange={(e) => setAccountId(Number(e.target.value))}>
             {accounts.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
@@ -110,12 +114,14 @@ export default function AppLayout() {
     <div className="min-h-full bg-white">
       <DesktopChrome />
       <main className={`lg:pl-[248px] lg:pt-[76px] ${immersive ? "pb-0" : "pb-[calc(62px+env(safe-area-inset-bottom))]"} lg:pb-10`}>
+        {!immersive && <MarketBar />}
         <div key={pathname} className="lg:max-w-[1120px] lg:mx-auto lg:px-8 lg:py-6 animate-fade">
           <Outlet />
         </div>
       </main>
       {!immersive && <BottomNav />}
       <SearchOverlay />
+      <NotificationCenter />
     </div>
   );
 }

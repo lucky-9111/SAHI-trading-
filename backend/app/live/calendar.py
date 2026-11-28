@@ -119,6 +119,22 @@ def next_close(exchange: str, now: dt.datetime | None = None) -> dt.datetime:
     raise RuntimeError("no trading day in the next 15 days")
 
 
+def next_open(exchange: str, now: dt.datetime | None = None) -> dt.datetime:
+    """The next session START strictly after `now` (UTC): today's if it is still ahead, else the next trading day's."""
+    n = _ist(now)
+    for i in range(0, 15):
+        day = n.date() + dt.timedelta(days=i)
+        b = session_bounds(exchange, day)
+        if b and b[0] > n.astimezone(UTC):
+            return b[0]
+    raise RuntimeError("no trading day in the next 15 days")
+
+
+def entry(exchange: str, day: dt.date) -> dict | None:
+    """The calendar exception of that day (holiday / special / late_open with its note), or None for an ordinary day."""
+    return _load().get((day.isoformat(), canon(exchange)))
+
+
 def put(db, day: str, exchange: str, kind: str, start: str | None = None, end: str | None = None, note: str = "") -> None:
     """Add or change an entry (used by scripts/calendar_admin.py and the NSE holiday sync)."""
     from sqlalchemy import select

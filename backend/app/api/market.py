@@ -74,6 +74,16 @@ def status(_: User = Depends(current_user)):
     return angel.provider.status()
 
 
+@router.get("/sessions")
+def sessions(_: User = Depends(current_user)):
+    """Market status per exchange (OPEN / PRE_OPEN / POST_CLOSE / CLOSED / WEEKEND / HOLIDAY) from the backend clock and the exchange
+    calendar. The app's order execution uses exactly this; the browser clock is never consulted."""
+    from app.trading import market_status
+
+    rows = market_status.all_statuses()
+    return {"server_time": rows[0].server_time.isoformat(), "exchanges": [r.as_dict() for r in rows]}
+
+
 @router.get("/overview")
 def overview(_: User = Depends(current_user)):
     """Index cards + trend labels. Every number comes from the provider; nothing is simulated."""
