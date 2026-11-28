@@ -35,6 +35,7 @@ _NEW_COLUMNS = {
     "trades": [("order_id", "INTEGER")],
     "notifications": [("account_id", "INTEGER"), ("order_id", "INTEGER"), ("kind", "VARCHAR(30) DEFAULT ''"),
                       ("level", "VARCHAR(10) DEFAULT 'info'")],
+    "users": [("role", "VARCHAR(10) DEFAULT 'user'"), ("is_owner", "BOOLEAN DEFAULT 0"), ("is_active", "BOOLEAN DEFAULT 1")],
     "risk_settings": [("after_hours_mode", "VARCHAR(6) DEFAULT 'REJECT'"), ("slippage_pct", "NUMERIC(6,3)")],
 }
 

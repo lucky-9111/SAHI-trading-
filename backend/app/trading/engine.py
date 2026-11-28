@@ -33,6 +33,7 @@ from typing import Callable
 from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
 
+from app.admin import switches
 from app.core.config import get_settings
 from app.live import calendar
 from app.models import Order, Position, Strategy, Trade, TradingAccount
@@ -255,6 +256,8 @@ def place_order(db: Session, account: TradingAccount, inst: Instrument, *, side:
             if stop_loss is not None or target is not None:
                 raise TradingError("Stop-loss and target apply to new positions, not to exit orders")
         validate_contract(inst, side, product, quantity, reducing=reducing)
+        if not reducing and not switches.get("orders_enabled"):
+            raise TradingError("New orders are paused by the administrator. Exits of open positions still work.")
         if not reducing:
             check_risk(db, account, opening_new=existing is None)
 
@@ -461,6 +464,8 @@ def process_price(db: Session, instrument_id: int, price: Decimal, at: datetime 
     `price` must be a fresh price of the current session (a websocket tick, or pricing.execution_quote); `at` is when it traded.
     Nothing happens while the exchange is closed. Gaps: fills happen at the observed price, which may be worse than a stop level."""
     at = ms.utc(at) if at is not None else ms.now()
+    if not switches.get("engine_enabled"):
+        return []                                              # paused from the developer console
     inst = db.get(Instrument, instrument_id)
     if inst is None or not ms.is_open(inst.exchange, at):
         return []

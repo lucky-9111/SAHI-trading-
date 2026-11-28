@@ -1,4 +1,5 @@
-export interface User { id: number; email: string; name: string }
+export type Role = "user" | "admin" | "developer";
+export interface User { id: number; email: string; name: string; role: Role; is_owner: boolean; read_only: boolean }
 export interface Account { id: number; name: string; initial_capital: string; balance: string }
 export interface LedgerEntry {
   id: number; entry_type: string; amount: string; balance_after: string; description: string; created_at: string;

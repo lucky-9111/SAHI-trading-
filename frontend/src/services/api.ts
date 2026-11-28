@@ -1,9 +1,15 @@
 const TOKEN_KEY = "agt_token";
+const VIEW_KEY = "agt_view_token";   // an admin's read-only "view as" token: this browser tab only
+
+const safe = <T,>(fn: () => T, fallback: T): T => { try { return fn(); } catch { return fallback; } };
 
 export const tokenStore = {
-  get: () => localStorage.getItem(TOKEN_KEY),
-  set: (t: string) => localStorage.setItem(TOKEN_KEY, t),
-  clear: () => localStorage.removeItem(TOKEN_KEY),
+  get: () => safe(() => sessionStorage.getItem(VIEW_KEY), null) ?? safe(() => localStorage.getItem(TOKEN_KEY), null),
+  set: (t: string) => safe(() => localStorage.setItem(TOKEN_KEY, t), undefined),
+  clear: () => safe(() => localStorage.removeItem(TOKEN_KEY), undefined),
+  viewing: () => !!safe(() => sessionStorage.getItem(VIEW_KEY), null),
+  setView: (t: string) => safe(() => sessionStorage.setItem(VIEW_KEY, t), undefined),
+  clearView: () => safe(() => sessionStorage.removeItem(VIEW_KEY), undefined),
 };
 
 export class ApiError extends Error {

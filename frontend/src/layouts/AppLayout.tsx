@@ -1,4 +1,6 @@
-import { BarChart3, BookOpen, FileText, History, IndianRupee, LogOut, ScanSearch, Search, Settings, User, Wallet } from "lucide-react";
+import { BarChart3, BookOpen, FileText, History, IndianRupee, LogOut, ScanSearch, Search, Settings, Shield, User, Users, Wallet } from "lucide-react";
+import { useEffect, useState } from "react";
+import { api } from "../services/api";
 import { Link, NavLink, Outlet, useLocation, useSearchParams } from "react-router-dom";
 import { AppMark, HomeIcon, OrdersIcon, PortfolioIcon, TradeIcon, WatchIcon } from "../components/art";
 import { MarketBar, MarketPill } from "../components/MarketStatus";
@@ -74,6 +76,10 @@ function DesktopChrome() {
             );
           })}
           <div className="h-px bg-line my-3 mx-3" />
+          {(user?.role === "admin" || user?.role === "developer") && !user.read_only && (
+            <NavLink to="/admin" className="flex items-center gap-3 rounded-2xl px-3 py-2 text-[13px] lg:text-[14px] text-muted hover:bg-soft hover:text-ink"><Users size={19} strokeWidth={1.7} /><span className="flex-1">Admin console</span></NavLink>)}
+          {user?.role === "developer" && !user.read_only && (
+            <NavLink to="/dev" className="flex items-center gap-3 rounded-2xl px-3 py-2 text-[13px] lg:text-[14px] text-muted hover:bg-soft hover:text-ink"><Shield size={19} strokeWidth={1.7} /><span className="flex-1">Developer console</span></NavLink>)}
           {MORE.map(({ path, label, Icon, soon }) => (
             <NavLink key={path} to={path} className={({ isActive }) => `flex items-center gap-3 rounded-2xl px-3 py-2 text-[13px] lg:text-[14px] transition-colors ${isActive ? "bg-soft text-ink font-medium" : "text-muted hover:bg-soft hover:text-ink"}`}>
               <Icon size={19} strokeWidth={1.7} /><span className="flex-1">{label}</span>{soon && <span className="text-[10px] uppercase tracking-wide text-faint">Soon</span>}
@@ -105,6 +111,37 @@ function DesktopChrome() {
   );
 }
 
+interface Ann { id: number; title: string; body: string; level: string }
+
+/** Read-only "view as" banner + active announcements from the admin console (dismissed per browser). */
+function TopBanners() {
+  const { user, logout } = useAuth();
+  const [anns, setAnns] = useState<Ann[]>([]);
+  const [hidden, setHidden] = useState<number[]>(() => { try { return JSON.parse(localStorage.getItem("agt_ann_hidden") ?? "[]"); } catch { return []; } });
+  useEffect(() => {
+    const load = () => api<Ann[]>("/api/announcements").then(setAnns).catch(() => {});
+    load();
+    const id = setInterval(load, 120000);
+    return () => clearInterval(id);
+  }, []);
+  const hide = (id: number) => { const n = [...hidden, id]; setHidden(n); try { localStorage.setItem("agt_ann_hidden", JSON.stringify(n)); } catch { /* ignore */ } };
+  const tone: Record<string, string> = { warning: "bg-peach text-[#7a4a00]", success: "bg-buybg text-buy", info: "bg-[#e6f0ff] text-[#1f4fa8]" };
+  return (
+    <>
+      {user?.read_only && (
+        <div className="sticky top-0 z-[45] bg-sell text-white text-[13.5px] px-4 py-2 flex items-center gap-3 lg:pl-[264px]">
+          <span className="flex-1">Viewing as <b>{user.name}</b> ({user.email}) · read-only, nothing can be changed</span>
+          <button onClick={logout} className="rounded-full bg-white/20 px-3 py-1">Exit</button>
+        </div>)}
+      {anns.filter((a) => !hidden.includes(a.id)).map((a) => (
+        <div key={a.id} className={`lg:ml-[248px] px-4 lg:px-8 py-2.5 text-[13.5px] flex items-start gap-3 ${tone[a.level] ?? tone.info}`}>
+          <span className="flex-1"><b className="font-semibold">{a.title}</b>{a.body ? ` · ${a.body}` : ""}</span>
+          <button aria-label="Dismiss" onClick={() => hide(a.id)} className="opacity-70 hover:opacity-100">✕</button>
+        </div>))}
+    </>
+  );
+}
+
 export default function AppLayout() {
   const { pathname } = useLocation();
   const [params] = useSearchParams();
@@ -113,7 +150,8 @@ export default function AppLayout() {
   return (
     <div className="min-h-full bg-white">
       <DesktopChrome />
-      <main className={`lg:pl-[248px] lg:pt-[76px] ${immersive ? "pb-0" : "pb-[calc(62px+env(safe-area-inset-bottom))]"} lg:pb-10`}>
+      <div className="lg:pt-[76px]"><TopBanners /></div>
+      <main className={`lg:pl-[248px] ${immersive ? "pb-0" : "pb-[calc(62px+env(safe-area-inset-bottom))]"} lg:pb-10`}>
         {!immersive && <MarketBar />}
         <div key={pathname} className="lg:max-w-[1120px] lg:mx-auto lg:px-8 lg:py-6 animate-fade">
           <Outlet />

@@ -11,7 +11,7 @@ from sqlalchemy import text
 import os
 import threading
 
-from app.api import accounts, auth, dashboard, derivatives, instruments, market, notifications, trading, watchlists
+from app.api import accounts, admin, auth, dashboard, derivatives, dev, instruments, market, notifications, trading, watchlists
 from app.live import runtime, ws as live_ws
 from app.core.config import get_settings
 from app.database.session import Base, engine, ensure_columns
@@ -19,6 +19,9 @@ import app.models  # noqa: F401  (register models)
 import app.trading.notify  # noqa: F401  (order notifications are pushed after each commit)
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+from app.admin import logbuffer, metrics  # noqa: E402
+
+logbuffer.install()                       # live logs + incidents for the developer console (secrets masked)
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
@@ -70,9 +73,25 @@ app.add_middleware(CORSMiddleware, allow_origins=settings.cors_list, allow_crede
                    allow_methods=["*"], allow_headers=["*"])
 app.add_middleware(TrustedHostMiddleware, allowed_hosts=settings.trusted_host_list)
 
+
+@app.middleware("http")
+async def _measure(request, call_next):
+    """Request count, server errors and latency for the developer console's API health."""
+    import time as _t
+
+    t0 = _t.perf_counter()
+    try:
+        response = await call_next(request)
+    except Exception:
+        metrics.http(500, (_t.perf_counter() - t0) * 1000)
+        raise
+    if request.url.path.startswith("/api/"):
+        metrics.http(response.status_code, (_t.perf_counter() - t0) * 1000)
+    return response
+
 for r in (auth.router, accounts.router, dashboard.router, instruments.router, market.router, trading.router,
           trading.strategies_router, watchlists.router,
-          derivatives.router, notifications.router):
+          derivatives.router, notifications.router, admin.router, admin.public_router, dev.router):
     app.include_router(r)
 
 

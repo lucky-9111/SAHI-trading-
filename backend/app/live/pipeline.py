@@ -280,6 +280,9 @@ class Pipeline:
 
     async def advance(self, now: dt.datetime) -> None:
         """What the 1 Hz timer does. A replay calls it with the virtual time instead."""
+        from app.admin import metrics
+
+        metrics.beat("pipeline")
         if self.clock.virtual or self.mode == "replay":
             if now > self._cursor:
                 self._cursor = now

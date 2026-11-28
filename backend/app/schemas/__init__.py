@@ -20,6 +20,9 @@ class UserOut(BaseModel):
     id: int
     email: str
     name: str
+    role: str = "user"
+    is_owner: bool = False
+    read_only: bool = False          # an admin viewing this account ("view as")
 
 
 class TokenOut(BaseModel):

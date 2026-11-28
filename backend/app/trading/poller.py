@@ -15,6 +15,7 @@ from app.live import runtime
 from app.models import Order, Position
 from app.models.market import Instrument
 from app.models.trading import WORKING_STATUSES
+from app.admin import metrics
 from app.trading import engine, market_status, pricing
 
 log = logging.getLogger(__name__)
@@ -22,6 +23,7 @@ INTERVAL = 5
 
 
 def tick() -> int:
+    metrics.beat("execution_worker")
     with SessionLocal() as db:
         n = engine.expire_orders(db)
         if n:

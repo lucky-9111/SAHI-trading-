@@ -11,3 +11,4 @@ from app.models.core import (  # noqa: F401
     User,
 )
 from app.models.live import LiveCandle, MarketCalendarRow, TradeLog  # noqa: F401
+from app.models.admin import Announcement, AuditLog, LoginAttempt, UserSession  # noqa: F401

@@ -23,6 +23,9 @@ def market_clock():
     from app.live import calendar, runtime
     from app.trading import market_status, pricing
 
+    from app.admin import switches
+
+    switches.clear_cache()                # every test starts with a fresh database, so no switch value may be carried over
     market_status.set_clock(TRADING_TIME)
     pricing._fcache.clear()
     pricing._cache.clear()

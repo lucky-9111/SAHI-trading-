@@ -118,7 +118,7 @@ class AngelProvider:
         hit = self._candle_cache.get(key)
         if hit and time.time() - hit[0] <= CANDLE_TTL:
             return hit[1]
-        res = self._request(lambda c: c.getCandleData(params))
+        res = self._request(lambda c: c.getCandleData(params), "candles")
         data = res.get("data") or []
         if not data:
             raise NoData("No candles returned for this range")
@@ -129,24 +129,40 @@ class AngelProvider:
 
     def get_market_data(self, exchange_tokens: dict[str, list[str]]) -> list[dict]:
         """Batch quotes (up to 50 tokens): ltp, previous close, change, volume."""
-        res = self._request(lambda c: c.getMarketData("FULL", exchange_tokens))
+        res = self._request(lambda c: c.getMarketData("FULL", exchange_tokens), "quote")
         return (res.get("data") or {}).get("fetched") or []
 
     def get_ltp(self, exchange: str, trading_symbol: str, token: str):
         from decimal import Decimal
 
-        res = self._request(lambda c: c.ltpData(exchange, trading_symbol, token))
+        res = self._request(lambda c: c.ltpData(exchange, trading_symbol, token), "ltp")
         ltp = (res.get("data") or {}).get("ltp")
         if ltp is None:
             raise NoData("No price returned")
         return Decimal(str(ltp))
 
-    def _request(self, call) -> dict:
+    def _request(self, call, name: str = "other") -> dict:
         try:
-            return self._request_once(call)
+            return self._measured(call, name)
         except RateLimited:
             time.sleep(RATE_RETRY_WAIT)  # Angel allows ~3 calls/s; one patient retry clears most bursts
-            return self._request_once(call)
+            return self._measured(call, name)
+
+    def _measured(self, call, name: str) -> dict:
+        """One call, recorded for the developer console (count, time, errors, rate limits). Nothing extra is sent to Angel One."""
+        from app.admin import metrics
+
+        t0 = time.perf_counter()
+        try:
+            res = self._request_once(call)
+        except RateLimited as e:
+            metrics.angel(name, (time.perf_counter() - t0) * 1000, "rate_limited", str(e))
+            raise
+        except ProviderError as e:
+            metrics.angel(name, (time.perf_counter() - t0) * 1000, "error", str(e))
+            raise
+        metrics.angel(name, (time.perf_counter() - t0) * 1000, "ok")
+        return res
 
     def _request_once(self, call) -> dict:
         with self._lock:

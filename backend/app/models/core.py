@@ -20,6 +20,9 @@ class User(Base):
     email: Mapped[str] = mapped_column(String(255), unique=True, index=True)
     name: Mapped[str] = mapped_column(String(100))
     password_hash: Mapped[str] = mapped_column(String(255))
+    role: Mapped[str] = mapped_column(String(10), default="user")          # user | admin | developer (cumulative)
+    is_owner: Mapped[bool] = mapped_column(Boolean, default=False)       # the first developer: the only one who creates developers
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)       # disabled users cannot sign in
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     accounts: Mapped[list["TradingAccount"]] = relationship(back_populates="user", cascade="all, delete-orphan")
 

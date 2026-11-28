@@ -34,10 +34,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   useEffect(() => {
+    // "View as" opens a new tab with ?view_token=...: keep it for this tab only and take it out of the address bar
+    const params = new URLSearchParams(location.search);
+    const vt = params.get("view_token");
+    if (vt) {
+      tokenStore.setView(vt);
+      params.delete("view_token");
+      history.replaceState(null, "", location.pathname + (params.toString() ? `?${params}` : "") + location.hash);
+    }
     if (!tokenStore.get()) { setLoading(false); return; }
     api<User>("/api/auth/me")
       .then(async (u) => { setUser(u); await refreshAccounts(); })
-      .catch((e) => { if (e instanceof ApiError && e.status === 401) tokenStore.clear(); })
+      .catch((e) => { if (e instanceof ApiError && e.status === 401) { if (tokenStore.viewing()) tokenStore.clearView(); else tokenStore.clear(); } })
       .finally(() => setLoading(false));
   }, [refreshAccounts]);
 
@@ -53,7 +61,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     login: async (email, password) => finish(await api("/api/auth/login", { method: "POST", json: { email, password } })),
     register: async (email, name, password) =>
       finish(await api("/api/auth/register", { method: "POST", json: { email, name, password } })),
-    logout: () => { tokenStore.clear(); setUser(null); setAccounts([]); setAccountIdState(null); },
+    logout: () => {
+      if (tokenStore.viewing()) { tokenStore.clearView(); window.close(); location.href = "/"; return; }
+      api("/api/auth/logout", { method: "POST" }).catch(() => {});
+      tokenStore.clear(); setUser(null); setAccounts([]); setAccountIdState(null);
+    },
   };
   return <AuthCtx.Provider value={value}>{children}</AuthCtx.Provider>;
 }

@@ -15,6 +15,9 @@ class Settings(BaseSettings):
     database_url: str = "sqlite:///./agroup_trader.db"
     secret_key: str = "CHANGE_ME_IN_ENV"
     access_token_minutes: int = 60 * 12
+    # sign-in protection: this many wrong passwords within the window lock the email (and the address) for the window
+    login_max_failures: int = 5
+    login_lock_minutes: int = 15
     cors_origins: str = "http://localhost:5173,http://127.0.0.1:5173"
     default_capital: str = "1000000"
     # paper-fill realism: adverse slippage in % applied to MARKET fills, trigger (stop) entries and stop-loss exits

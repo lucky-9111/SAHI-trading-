@@ -135,6 +135,31 @@ def entry(exchange: str, day: dt.date) -> dict | None:
     return _load().get((day.isoformat(), canon(exchange)))
 
 
+NSE_HOLIDAYS_URL = "https://www.nseindia.com/api/holiday-master?type=trading"
+
+
+def sync_nse(db, fetch=None) -> int:
+    """Store NSE's own trading-holiday list (F&O segment, which equals the cash market). Best effort: NSE may refuse automated calls."""
+    import json
+    import urllib.request
+
+    if fetch is None:
+        def fetch():
+            req = urllib.request.Request(NSE_HOLIDAYS_URL, headers={
+                "User-Agent": "Mozilla/5.0", "Accept": "application/json",
+                "Referer": "https://www.nseindia.com/resources/exchange-communication-holidays"})
+            return json.loads(urllib.request.urlopen(req, timeout=20).read())
+    n = 0
+    for x in fetch().get("FO") or []:
+        try:
+            d = dt.datetime.strptime(x["tradingDate"], "%d-%b-%Y").date().isoformat()
+        except (KeyError, ValueError):
+            continue
+        put(db, d, "NSE", "holiday", note=(x.get("description") or "Exchange holiday").strip()[:200])
+        n += 1
+    return n
+
+
 def put(db, day: str, exchange: str, kind: str, start: str | None = None, end: str | None = None, note: str = "") -> None:
     """Add or change an entry (used by scripts/calendar_admin.py and the NSE holiday sync)."""
     from sqlalchemy import select

@@ -1,5 +1,6 @@
-import { CalendarDays, ChevronRight, FileText, History, IndianRupee, LogOut, Settings, ShieldCheck, Target, Wallet, type LucideIcon } from "lucide-react";
-import type { ReactNode } from "react";
+import { CalendarDays, ChevronRight, FileText, History, IndianRupee, KeyRound, LogOut, Settings, Shield, ShieldCheck, Target, Users, Wallet, type LucideIcon } from "lucide-react";
+import { useState, type ReactNode } from "react";
+import { api } from "../services/api";
 import { Link } from "react-router-dom";
 import { BackBar } from "../components/ui";
 import { useAuth } from "../contexts/AuthContext";
@@ -35,6 +36,31 @@ function Group({ children }: { children: ReactNode }) {
   return <div className="card overflow-hidden divide-y divide-line [&>*]:mx-0">{children}</div>;
 }
 
+function ChangePassword() {
+  const [open, setOpen] = useState(false);
+  const [cur, setCur] = useState("");
+  const [next, setNext] = useState("");
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const save = async () => {
+    try {
+      await api("/api/auth/change-password", { method: "POST", json: { current_password: cur, new_password: next } });
+      setMsg({ ok: true, text: "Password changed. Other devices were signed out." }); setCur(""); setNext("");
+    } catch (e) { setMsg({ ok: false, text: (e as Error).message }); }
+  };
+  return (
+    <Group>
+      <Item Icon={KeyRound} title="Change password" sub="Signs you out on every other device" onClick={() => setOpen(!open)} />
+      {open && (
+        <div className="px-5 py-4 space-y-3">
+          <input className="input" type="password" autoComplete="current-password" placeholder="Current password" value={cur} onChange={(e) => setCur(e.target.value)} />
+          <input className="input" type="password" autoComplete="new-password" placeholder="New password (8+ characters)" value={next} onChange={(e) => setNext(e.target.value)} />
+          {msg && <div role="status" className={`text-[13.5px] ${msg.ok ? "text-up" : "text-down"}`}>{msg.text}</div>}
+          <button className="btn-primary w-full py-3" disabled={!cur || next.length < 8} onClick={save}>Save password</button>
+        </div>)}
+    </Group>
+  );
+}
+
 export default function ProfilePage() {
   const { user, accounts, accountId, logout } = useAuth();
   const acc = accounts.find((a) => a.id === accountId);
@@ -66,6 +92,12 @@ export default function ProfilePage() {
           <Item to="/funds" Icon={Wallet} title="Funds ledger" sub="Deposits, withdrawals, every fill" />
           <Item to="/trade-book" Icon={FileText} title="Statements" sub="Trade history with charges and net P&L" />
         </Group>
+        {(user?.role === "admin" || user?.role === "developer") && !user.read_only && (
+          <Group>
+            <Item to="/admin" Icon={Users} title="Admin console" sub="Users, audit log, announcements, market calendar" />
+            {user.role === "developer" && <Item to="/dev" Icon={Shield} title="Developer console" sub="System health, Angel One API, switches, logs" />}
+          </Group>)}
+        <ChangePassword />
         <Group>
           <Item Icon={LogOut} title="Logout" danger onClick={logout} />
         </Group>
