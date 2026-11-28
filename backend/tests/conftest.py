@@ -20,11 +20,14 @@ TRADING_TIME = __import__("datetime").datetime(2026, 11, 27, 9, 30, tzinfo=__imp
 
 @pytest.fixture(autouse=True)
 def market_clock():
-    from app.live import calendar
+    from app.live import calendar, runtime
     from app.trading import market_status, pricing
 
     market_status.set_clock(TRADING_TIME)
     pricing._fcache.clear()
+    pricing._cache.clear()
+    runtime.store._ticks.clear()          # a tick left by an earlier test must not make the worker skip an instrument
+    runtime.store._at.clear()
     yield market_status.set_clock
     market_status.set_clock(None)
     calendar.invalidate()
