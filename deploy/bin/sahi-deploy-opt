@@ -1,0 +1,73 @@
+#!/bin/bash
+# Install a release tarball on the hand-built /opt/sahi layout (systemd unit "sahi", run as the login user, venv in backend/.venv).
+# Keeps backend/.env, the database, backend/.venv and logs untouched. Steps:
+#   verify the package checksum -> online database backup -> code backup -> install -> pip only if requirements changed
+#   -> import check -> restart -> health gate. Any failure after the backups restores the previous code and restarts it.
+# Usage: sahi-deploy-opt <tarball> <git-sha> <sha256>
+set -euo pipefail
+TARBALL="$1"; SHA="$2"; EXPECT="$3"
+APP=/opt/sahi
+KEEP=15                                       # backups of each kind kept
+TS=$(date -u +%Y%m%dT%H%M%SZ)
+cd "$APP"
+
+echo "== verify package"
+echo "$EXPECT  $TARBALL" | sha256sum -c -
+
+echo "== database backup (online, WAL-safe)"
+backend/.venv/bin/python - "$TS" <<'PY'
+import sqlite3, sys
+src = sqlite3.connect("backend/agroup_trader.db"); dst = sqlite3.connect(f"backup-{sys.argv[1]}.db")
+src.backup(dst); dst.close(); src.close()
+PY
+chmod 600 "backup-$TS.db"
+
+echo "== code backup"
+parts=(backend/app backend/scripts backend/alembic backend/alembic.ini backend/pyproject.toml backend/requirements.txt frontend/dist)
+[ -f REVISION ] && parts+=(REVISION)
+tar czf "code-backup-$TS.tar.gz" "${parts[@]}"
+
+STAGE=$(mktemp -d)
+tar xzf "$TARBALL" -C "$STAGE"
+grep -qx "$SHA" "$STAGE/REVISION" || { echo "package REVISION does not match $SHA"; exit 1; }
+
+rollback() {
+  echo "!! deploy failed: restoring the previous code"
+  rm -rf backend/app backend/scripts backend/alembic frontend/dist
+  tar xzf "code-backup-$TS.tar.gz"
+  sudo systemctl restart sahi || true
+  rm -rf "$STAGE"
+  exit 1
+}
+trap rollback ERR
+
+echo "== install"
+OLD_REQ=$(md5sum backend/requirements.txt | cut -d' ' -f1)
+for d in app scripts alembic; do rm -rf "backend/$d"; cp -a "$STAGE/backend/$d" "backend/$d"; done
+cp -a "$STAGE"/backend/alembic.ini "$STAGE"/backend/pyproject.toml "$STAGE"/backend/requirements*.* backend/
+rm -rf frontend/dist && cp -a "$STAGE/frontend/dist" frontend/dist
+rm -rf docs deploy && cp -a "$STAGE/docs" docs && cp -a "$STAGE/deploy" deploy
+cp "$STAGE/REVISION" REVISION
+if [ "$(md5sum backend/requirements.txt | cut -d' ' -f1)" != "$OLD_REQ" ]; then
+  echo "== requirements changed: installing"
+  backend/.venv/bin/pip install --disable-pip-version-check -q -r backend/requirements.txt
+fi
+
+echo "== import check"
+(cd backend && DISABLE_AUTO_SYNC=1 DISABLE_ENGINE=1 FEED_MODE=off .venv/bin/python -c "import app.main")
+
+echo "== restart + health gate"
+sudo systemctl restart sahi
+for i in $(seq 1 40); do
+  sleep 1
+  if curl -fsS -m 3 http://127.0.0.1:8000/api/health/ready >/dev/null; then echo "healthy after ${i}s"; break; fi
+  [ "$i" = 40 ] && false
+done
+trap - ERR
+echo "$SHA" > DEPLOYED_REVISION
+rm -rf "$STAGE" "$TARBALL"
+
+echo "== prune old backups (keep $KEEP of each)"
+ls -1t backup-*.db 2>/dev/null | tail -n +$((KEEP + 1)) | xargs -r rm -f
+ls -1t code-backup-*.tar.gz 2>/dev/null | tail -n +$((KEEP + 1)) | xargs -r rm -f
+echo "DEPLOYED $SHA (backup-$TS.db, code-backup-$TS.tar.gz)"

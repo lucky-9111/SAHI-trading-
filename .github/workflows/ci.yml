@@ -160,7 +160,7 @@ jobs:
           shellcheck --version | head -n2
           shellcheck -x -P bin -S warning bin/sahi-common.sh bin/sahi-deploy bin/sahi-rollback bin/sahi-backup \
             bin/sahi-restore bin/sahi-monitor bin/sahi-status bin/sahi-migrate-legacy bin/smoke-boot.sh \
-            build-release.sh server/bootstrap.sh ci/check-repo-hygiene.sh
+            bin/sahi-deploy-opt build-release.sh server/bootstrap.sh ci/check-repo-hygiene.sh
 
       - name: nginx -t on the site configuration
         run: |

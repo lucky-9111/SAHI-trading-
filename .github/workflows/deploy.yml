@@ -1,6 +1,8 @@
 # Deploy: every push to main (= merged pull request) runs the full CI and security checks again on that exact
-# commit, packages it, and installs it on the EC2 server with sahi-deploy (staged release, verified DB backup,
-# health-gated switch, automatic rollback). Manual re-run: Actions -> Deploy -> Run workflow (main only).
+# commit, packages it, and installs it on the EC2 server. Two server layouts are supported and detected automatically:
+#   full  - bootstrapped with deploy/server/bootstrap.sh: sahi-deploy (staged release, verified backup, health gate, rollback)
+#   opt   - the hand-built /opt/sahi + systemd "sahi" layout: deploy/bin/sahi-deploy-opt (backup, install, health gate, rollback)
+# Manual re-run: Actions -> Deploy -> Run workflow (main only).
 name: Deploy
 
 on:
@@ -51,7 +53,7 @@ jobs:
     env:
       RELEASE_NAME: ${{ needs.ci.outputs.release_name }}
       RELEASE_SHA256: ${{ needs.ci.outputs.release_sha256 }}
-      SSH_USER: ${{ vars.EC2_SSH_USER || 'deploy' }}
+      SSH_USER: ${{ vars.EC2_SSH_USER || 'ubuntu' }}
       SSH_PORT: ${{ vars.EC2_SSH_PORT || '22' }}
     steps:
       - name: Check required secrets
@@ -133,17 +135,38 @@ jobs:
           chmod 600 ~/.ssh/config
 
       - name: Verify the target server
+        id: target
         run: |
-          # host key must match EC2_SSH_KNOWN_HOSTS (StrictHostKeyChecking), bootstrap must be done
-          ssh sahi-prod 'test -x /usr/local/sbin/sahi-deploy && sudo -n -l /usr/local/sbin/sahi-deploy >/dev/null && echo "server ready; live revision: $(cat /opt/sahi/DEPLOYED_REVISION 2>/dev/null || echo none)"'
+          # host key must match EC2_SSH_KNOWN_HOSTS (StrictHostKeyChecking); find out which layout the server uses
+          mode=$(ssh sahi-prod 'if test -x /usr/local/sbin/sahi-deploy && sudo -n -l /usr/local/sbin/sahi-deploy >/dev/null 2>&1; then echo full;
+            elif systemctl cat sahi >/dev/null 2>&1 && test -x /opt/sahi/backend/.venv/bin/python && sudo -n true 2>/dev/null; then echo opt;
+            else echo none; fi')
+          live=$(ssh sahi-prod 'cat /opt/sahi/DEPLOYED_REVISION 2>/dev/null || echo none')
+          echo "server layout: $mode; live revision: $live"
+          [ "$mode" != none ] || { echo "::error::neither sahi-deploy nor the /opt/sahi + systemd 'sahi' layout was found (see docs/DEPLOYMENT_GUIDE.md)"; exit 1; }
+          echo "mode=$mode" >>"$GITHUB_OUTPUT"
 
       - name: Upload release
-        run: scp -q "out/$RELEASE_NAME" "sahi-prod:incoming/$RELEASE_NAME"
+        env:
+          MODE: ${{ steps.target.outputs.mode }}
+        run: |
+          if [ "$MODE" = full ]; then
+            scp -q "out/$RELEASE_NAME" "sahi-prod:incoming/$RELEASE_NAME"
+          else
+            scp -q "out/$RELEASE_NAME" "sahi-prod:/tmp/$RELEASE_NAME"
+            scp -q deploy/bin/sahi-deploy-opt "sahi-prod:/tmp/sahi-deploy-opt"
+          fi
 
       - name: Install release (backup, switch, health gate, automatic rollback)
+        env:
+          MODE: ${{ steps.target.outputs.mode }}
         run: |
-          # shellcheck disable=SC2029  # values are expanded here on purpose (validated again by sahi-deploy)
-          ssh sahi-prod "sudo -n /usr/local/sbin/sahi-deploy /home/$SSH_USER/incoming/$RELEASE_NAME $GITHUB_SHA $RELEASE_SHA256"
+          # shellcheck disable=SC2029  # values are expanded here on purpose (validated again on the server)
+          if [ "$MODE" = full ]; then
+            ssh sahi-prod "sudo -n /usr/local/sbin/sahi-deploy /home/$SSH_USER/incoming/$RELEASE_NAME $GITHUB_SHA $RELEASE_SHA256"
+          else
+            ssh sahi-prod "bash /tmp/sahi-deploy-opt /tmp/$RELEASE_NAME $GITHUB_SHA $RELEASE_SHA256"
+          fi
 
       - name: Public health check
         env:
