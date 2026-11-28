@@ -129,7 +129,8 @@ def test_insufficient_funds_rejects_order_without_touching_balance(client, auth,
 
 def test_no_price_means_no_market_order(client, auth, acct, px):
     px["fail"] = True
-    r = order(client, auth, acct).json()                                   # default (queue): waits for the first fresh price
+    client.put(f"/api/accounts/{acct}/order-settings", json={"after_hours_mode": "QUEUE"}, headers=auth)
+    r = order(client, auth, acct).json()                                   # queue mode: waits for the first fresh price
     assert r["status"] == "PENDING" and r["filled_quantity"] == 0 and r["exec_price"] is None
     client.put(f"/api/accounts/{acct}/order-settings", json={"after_hours_mode": "REJECT"}, headers=auth)
     r = order(client, auth, acct).json()                                   # reject mode: recorded as rejected, never filled

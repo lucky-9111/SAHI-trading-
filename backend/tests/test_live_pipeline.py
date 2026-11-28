@@ -406,6 +406,8 @@ def test_slippage_setting_is_adverse(world, monkeypatch):
 def test_stale_price_is_refused_when_the_feed_is_down(world, monkeypatch):
     monkeypatch.setattr(runtime.store, "is_stale", lambda ex, tok: True)
     with SessionLocal() as db:
+        acct_obj(db, world).risk.after_hours_mode = "QUEUE"
+        db.commit()
         o = engine.place_order(db, acct_obj(db, world), db.get(Instrument, world["rel"]), side="BUY", order_type="MARKET", product="DELIVERY",
                                quantity=1, limit_price=None, stop_loss=None, target=None, strategy_id=None, idempotency_key=None)
         assert o.status == "PENDING" and o.filled_quantity == 0              # queued, never filled on the stale price

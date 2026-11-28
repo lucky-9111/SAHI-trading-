@@ -49,6 +49,11 @@ def tick(price, at, symbol="RELIANCE", quote=None):
         return engine.process_price(db, iid(symbol), D(str(price)), at=at, quote=quote)
 
 
+def enable_amo(client, auth, acct):  # noqa: F811
+    """Turn on after-market orders (queue while closed) for this portfolio."""
+    client.put(f"/api/accounts/{acct}/order-settings", json={"after_hours_mode": "QUEUE"}, headers=auth)
+
+
 def get_order(client, auth, acct, oid):  # noqa: F811
     return client.get(f"/api/accounts/{acct}/orders/{oid}", headers=auth).json()
 
@@ -100,6 +105,7 @@ def test_holidays_and_special_sessions():
 
 
 def test_holiday_blocks_execution_even_with_a_price(client, auth, acct, px):  # noqa: F811
+    enable_amo(client, auth, acct)
     calendar.override({("2026-11-27", "NSE"): {"kind": "holiday", "start": None, "end": None, "note": "Test holiday"}})
     r = order(client, auth, acct).json()
     assert r["status"] == "PENDING" and r["after_market"] is True
@@ -134,6 +140,7 @@ def test_market_order_fills_at_the_ask_plus_slippage(client, auth, acct, px, dep
 
 # ============================================================================== 4. market order after market hours
 def test_market_order_after_hours_is_queued_never_filled_on_the_stale_price(client, auth, acct, px, market_clock):  # noqa: F811
+    enable_amo(client, auth, acct)
     market_clock(FRI_EVENING)
     r = order(client, auth, acct, quantity=10).json()
     assert r["status"] == "PENDING" and r["after_market"] is True and r["exec_price"] is None and r["filled_quantity"] == 0
@@ -145,13 +152,18 @@ def test_market_order_after_hours_is_queued_never_filled_on_the_stale_price(clie
         assert engine.process_price(db, iid(), D("1000")) == []
 
 
-def test_reject_mode_rejects_orders_while_closed(client, auth, acct, px, market_clock):  # noqa: F811
-    client.put(f"/api/accounts/{acct}/order-settings", json={"after_hours_mode": "REJECT"}, headers=auth)
+def test_closed_market_rejects_by_default_and_nothing_is_bought(client, auth, acct, px, market_clock):  # noqa: F811
     market_clock(SAT)
     pv = client.post(f"/api/accounts/{acct}/orders/preview", json={"symbol": "RELIANCE", "side": "BUY", "quantity": 1}, headers=auth).json()
-    assert pv["market"]["state"] == "WEEKEND" and any("rejected" in e for e in pv["errors"])
+    assert pv["market"]["state"] == "WEEKEND" and pv["after_hours_mode"] == "REJECT"
+    assert pv["market_closed_block"].startswith("Market closed (weekend). NSE opens Mon 30 Nov, 09:15 IST")
     r = order(client, auth, acct, quantity=10).json()
-    assert r["status"] == "REJECTED" and "market is closed" in r["reject_reason"]
+    assert r["status"] == "REJECTED" and r["reject_reason"].startswith("Market closed (weekend)")
+    assert balance(client, auth, acct) == D("1000000") and client.get(f"/api/accounts/{acct}/trades", headers=auth).json() == []
+    market_clock(ist(2026, 11, 27, 16, 30))
+    assert order(client, auth, acct, quantity=1).json()["reject_reason"].startswith("Market closed. NSE opens Mon 30 Nov, 09:15 IST")
+    market_clock(ist(2026, 11, 30, 9, 5))
+    assert order(client, auth, acct, quantity=1).json()["reject_reason"].startswith("Market closed (pre-open session). NSE opens Mon 30 Nov, 09:15")
     assert kinds(r["id"]) == ["ORDER_REJECTED"] and positions(client, auth, acct) == []
     gtt = order(client, auth, acct, order_type="LIMIT", limit_price="900", product="DELIVERY", validity="GTT").json()
     assert gtt["status"] == "PENDING"                                                         # GTT orders are still accepted
@@ -159,6 +171,7 @@ def test_reject_mode_rejects_orders_while_closed(client, auth, acct, px, market_
 
 # ============================================================================== 5. queued order executes at the next session
 def test_queued_order_executes_at_the_first_fresh_price_of_the_next_session(client, auth, acct, px, market_clock):  # noqa: F811
+    enable_amo(client, auth, acct)
     market_clock(FRI_EVENING)
     oid = order(client, auth, acct, quantity=10).json()["id"]
     assert tick(1000, SAT) == []                                                              # weekend
@@ -174,6 +187,7 @@ def test_queued_order_executes_at_the_first_fresh_price_of_the_next_session(clie
 
 
 def test_queued_limit_order_becomes_open_at_the_open(client, auth, acct, px, market_clock):  # noqa: F811
+    enable_amo(client, auth, acct)
     market_clock(FRI_EVENING)
     oid = order(client, auth, acct, order_type="LIMIT", limit_price="990", quantity=5).json()["id"]
     assert tick(1000, MON_OPEN) == [f"order {oid} OPEN"]                                      # activated, not marketable
@@ -243,6 +257,7 @@ def test_insufficient_funds_at_placement_and_at_fill(client, auth, acct, px, mar
 
 # ============================================================================== 9. cancellation and expiration
 def test_cancel_and_expire(client, auth, acct, px, market_clock):  # noqa: F811
+    enable_amo(client, auth, acct)
     lim = order(client, auth, acct, order_type="LIMIT", limit_price="900", quantity=5).json()
     c = client.post(f"/api/accounts/{acct}/orders/{lim['id']}/cancel", headers=auth).json()
     assert c["status"] == "CANCELLED" and c["cancellable"] is False
@@ -317,6 +332,7 @@ def test_execution_quote_refuses_previous_session_prices(monkeypatch):
 
 
 def test_no_fresh_data_keeps_queued_orders_pending(client, auth, acct, px, market_clock, monkeypatch):  # noqa: F811
+    enable_amo(client, auth, acct)
     market_clock(FRI_EVENING)
     oid = order(client, auth, acct, quantity=10).json()["id"]
     market_clock(MON_OPEN)
@@ -361,6 +377,7 @@ def test_same_fill_can_never_happen_twice(client, auth, acct, px):  # noqa: F811
 
 # ============================================================================== 13. application restart with pending orders
 def test_restart_with_pending_orders(client, auth, acct, px, market_clock, monkeypatch):  # noqa: F811
+    enable_amo(client, auth, acct)
     market_clock(FRI_EVENING)
     amo = order(client, auth, acct, quantity=10).json()
     lim = order(client, auth, acct, symbol="TCS", order_type="LIMIT", limit_price="995", quantity=10).json()
@@ -405,6 +422,7 @@ def test_legacy_orders_are_migrated_once(client):
 
 # ============================================================================== exits, order book, notifications API
 def test_exit_while_closed_is_queued_and_executes_at_the_open(client, auth, acct, px, market_clock):  # noqa: F811
+    enable_amo(client, auth, acct)
     order(client, auth, acct, quantity=10)
     pid = positions(client, auth, acct)[0]["id"]
     market_clock(FRI_EVENING)
@@ -418,6 +436,7 @@ def test_exit_while_closed_is_queued_and_executes_at_the_open(client, auth, acct
 
 
 def test_order_book_filters_and_detail(client, auth, acct, px, market_clock):  # noqa: F811
+    enable_amo(client, auth, acct)
     filled = order(client, auth, acct, quantity=1).json()
     opened = order(client, auth, acct, order_type="LIMIT", limit_price="900", quantity=1).json()
     rejected = order(client, auth, acct, quantity=5000).json()
@@ -446,7 +465,7 @@ def test_notifications_catch_up_and_mark_read(client, auth, acct, px):  # noqa: 
 
 def test_order_settings_roundtrip(client, auth, acct):  # noqa: F811
     s = client.get(f"/api/accounts/{acct}/order-settings", headers=auth).json()
-    assert s["after_hours_mode"] == "QUEUE" and s["slippage_pct"] is None
+    assert s["after_hours_mode"] == "REJECT" and s["slippage_pct"] is None              # default: nothing is bought while closed
     s = client.put(f"/api/accounts/{acct}/order-settings", json={"after_hours_mode": "REJECT", "slippage_pct": "0.05"}, headers=auth).json()
     assert s["after_hours_mode"] == "REJECT" and s["slippage_pct"] == "0.05"
     assert client.put(f"/api/accounts/{acct}/order-settings", json={"after_hours_mode": "MAYBE"}, headers=auth).status_code == 422

@@ -7,6 +7,7 @@ import { useLiveTick } from "../utils/liveSocket";
 import { sessionHint, type MarketSession } from "../utils/marketStatus";
 import { displayName } from "../utils/names";
 import { uuid } from "../utils/uuid";
+import { MarketClosedDialog } from "./MarketStatus";
 import { Segmented, Switch } from "./ui";
 
 interface Preview {
@@ -14,7 +15,7 @@ interface Preview {
   quantity: number; max_risk_amount: string; balance: string; errors: string[]; warnings: string[];
   order_value?: string; required_funds?: string; entry_charges?: string; risk_per_share?: string; total_risk?: string;
   reward_per_share?: string; potential_reward?: string; risk_reward?: string; estimated_net_reward?: string;
-  market?: MarketSession; after_hours_mode?: "QUEUE" | "REJECT";
+  market?: MarketSession; after_hours_mode?: "QUEUE" | "REJECT"; market_closed_block?: string | null;
 }
 interface OrderResult {
   id: number; status: string; exec_price: string | null; reject_reason: string | null; side: string; quantity: number;
@@ -74,6 +75,7 @@ export default function OrderPanel({ symbol, exchange, lotSize = 1, itype = "EQ"
   const [pvError, setPvError] = useState("");
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<{ ok: boolean; text: string } | null>(null);
+  const [closedMsg, setClosedMsg] = useState<string | null>(null);
   const key = useRef(uuid());
   const lots = lotSize > 1;
   const buy = side === "BUY";
@@ -125,7 +127,9 @@ export default function OrderPanel({ symbol, exchange, lotSize = 1, itype = "EQ"
 
   const place = async () => {
     if (!accountId) return;
-    setBusy(true); setResult(null);
+    setResult(null);
+    if (pv?.market_closed_block) { setClosedMsg(pv.market_closed_block); return; }   // closed: no order is sent at all
+    setBusy(true);
     try {
       const r = await api<OrderResult>(`/api/accounts/${accountId}/orders`, { method: "POST", json: { ...body(), idempotency_key: key.current } });
       key.current = uuid();
@@ -137,7 +141,8 @@ export default function OrderPanel({ symbol, exchange, lotSize = 1, itype = "EQ"
         OPEN: `Limit order #${r.id} is open at ${inr(r.limit_price)}.`,
         TRIGGER_PENDING: `Stop-loss order #${r.id} waits for its trigger at ${inr(r.trigger_price)}.`,
       };
-      if (r.status === "REJECTED") setResult({ ok: false, text: `Order rejected: ${r.reject_reason}` });
+      if (r.status === "REJECTED" && r.reject_reason?.startsWith("Market closed")) setClosedMsg(r.reject_reason);  // the backend has the last word
+      else if (r.status === "REJECTED") setResult({ ok: false, text: `Order rejected: ${r.reject_reason}` });
       else setResult({ ok: true, text: texts[r.status] ?? `Order #${r.id}: ${r.status}` });
       await refreshAccounts();
       onDone?.();
@@ -273,10 +278,11 @@ export default function OrderPanel({ symbol, exchange, lotSize = 1, itype = "EQ"
         <div className={`px-6 py-4 text-[15px] lg:text-[16px] ${pv.after_hours_mode === "REJECT" && validity === "DAY" ? "bg-sellbg/60 text-sell" : "bg-peach/70 text-[#7a4a00]"}`}>
           <b className="font-medium">{pv.market.label}</b>{sessionHint(pv.market) ? ` · ${sessionHint(pv.market)} IST` : ""}.{" "}
           {pv.after_hours_mode === "REJECT" && validity === "DAY"
-            ? "After-market orders are off in Settings, so orders are rejected until the market opens."
+            ? "Orders can be placed only during market hours. Nothing will be bought and no money is deducted."
             : "Your order will be queued as an after-market order and executes only at a fresh live price after the open, never at the last close."}
         </div>
       )}
+      {closedMsg && <MarketClosedDialog market={pv?.market} message={closedMsg} onClose={() => setClosedMsg(null)} />}
       <div className={`border-t border-line px-6 py-4 flex items-center justify-between gap-4 bg-white ${sheet ? "sticky bottom-0 pb-[calc(16px+env(safe-area-inset-bottom))]" : ""}`}>
         <div className="text-[14px] lg:text-[15px] leading-6 text-[#555]">
           <div>Est. balance: <span className="text-ink">{pv ? inr(pv.balance) : "₹0"}</span></div>

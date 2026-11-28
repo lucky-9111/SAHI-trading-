@@ -28,8 +28,9 @@ Order types: `MARKET`, `LIMIT`, `SL` (stop-loss limit: trigger plus limit price)
 type is still accepted and is stored as `SL-M`.
 
 ```
-place --closed, QUEUE mode--> PENDING (AMO) --first fresh price of the next session--> executes / OPEN / TRIGGER_PENDING
-      --closed, REJECT mode--> REJECTED                      (GTT orders are still accepted)
+place --closed, REJECT mode (default)--> REJECTED, nothing bought; the order panel shows a "Market is closed" dialog
+      --closed, QUEUE mode (AMO, opt-in)--> PENDING --first fresh price of the next session--> executes / OPEN / TRIGGER_PENDING
+      (GTT orders are accepted in both modes)
       --open-->  MARKET: FILLED (PENDING if no fresh price yet)   LIMIT: OPEN   SL / SL-M: TRIGGER_PENDING
 TRIGGER_PENDING --trigger hit--> SL-M executes at market; SL becomes OPEN at its limit price
 OPEN / PARTIALLY_FILLED --limit hit--> PARTIALLY_FILLED / FILLED

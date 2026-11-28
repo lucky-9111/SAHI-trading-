@@ -204,10 +204,11 @@ def preview(body: OrderIn, acc: TradingAccount = Depends(owned_account), db: Ses
     elif entry is not None:
         errors += engine.validate_levels(body.side, entry, body.stop_loss, body.target)
     mstat = market_status.status(inst.exchange)
-    mode = acc.risk.after_hours_mode or "QUEUE"
+    mode = acc.risk.after_hours_mode or "REJECT"
+    closed_block = None
     if not mstat.is_open:
         if mode == "REJECT" and body.validity == "DAY":
-            errors.append(f"{mstat.label}. After-market orders are off (Settings), so this order would be rejected.")
+            closed_block = engine.closed_message(mstat)        # the order button shows a "market closed" dialog instead of ordering
         else:
             nxt = market_status.utc(mstat.next_open)
             when = nxt.astimezone(pricing.IST).strftime("%a %d %b, %H:%M") if nxt else "the next session"
@@ -229,7 +230,7 @@ def preview(body: OrderIn, acc: TradingAccount = Depends(owned_account), db: Ses
         warnings.append("F&O margin is an approximate fixed percentage, not exchange SPAN margin.")
 
     out = {"ltp": s(quote.price) if quote else None, "market_open": mstat.is_open, "market": mstat.as_dict(),
-           "after_hours_mode": mode,
+           "after_hours_mode": mode, "market_closed_block": closed_block,
            "entry_price": s(entry), "suggested_quantity": suggested, "quantity": qty, "lot_size": lot,
            "instrument_type": itype,
            "risk_per_trade_pct": s(risk_pct), "max_risk_amount": s(risk_budget), "balance": s(balance),
@@ -362,7 +363,7 @@ def list_trades(acc: TradingAccount = Depends(owned_account), db: Session = Depe
 # ---------- order settings ----------
 def _order_settings(acc: TradingAccount) -> dict:
     r = acc.risk
-    return {"after_hours_mode": r.after_hours_mode or "QUEUE", "slippage_pct": s(r.slippage_pct) if r.slippage_pct is not None else None,
+    return {"after_hours_mode": r.after_hours_mode or "REJECT", "slippage_pct": s(r.slippage_pct) if r.slippage_pct is not None else None,
             "default_slippage_pct": str(engine.slippage_pct()), "depth_fills": engine.get_settings().paper_depth_fills}
 
 

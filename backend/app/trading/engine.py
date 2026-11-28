@@ -152,6 +152,16 @@ def _ist_text(t: datetime | None) -> str:
     return t.astimezone(pricing.IST).strftime("%a %d %b, %H:%M IST") if t else "the next session"
 
 
+def closed_message(market: "ms.MarketStatus") -> str:
+    """'Market closed (Weekend). NSE opens Mon 30 Nov, 09:15 IST. Orders are accepted only during market hours.'"""
+    state = {"PRE_OPEN": "pre-open session", "POST_CLOSE": "post-close session", "WEEKEND": "weekend", "HOLIDAY": "exchange holiday"}
+    why = state.get(market.state)
+    head = f"Market closed{f' ({why})' if why else ''}"
+    if market.state == "HOLIDAY" and market.note:
+        head = f"Market closed ({market.note})"
+    return f"{head}. {market.exchange} opens {_ist_text(market.next_open)}. Orders are accepted only during market hours."
+
+
 def _display_price(inst: Instrument) -> Decimal | None:
     """Best-effort reference price for validation and the funds check only (may be the last close). Never an execution price."""
     try:
@@ -250,7 +260,7 @@ def place_order(db: Session, account: TradingAccount, inst: Instrument, *, side:
 
         now = ms.now()
         market = ms.status(inst.exchange, now)
-        mode = (account.risk.after_hours_mode if account.risk else None) or "QUEUE"
+        mode = (account.risk.after_hours_mode if account.risk else None) or "REJECT"
         live, live_err = None, ""
         if market.is_open:
             try:
@@ -278,8 +288,7 @@ def place_order(db: Session, account: TradingAccount, inst: Instrument, *, side:
         db.flush()
 
         if not market.is_open and validity == "DAY" and mode == "REJECT":
-            return _reject_new(db, order, f"{market.label}: orders are not accepted while the market is closed "
-                                          "(after-market orders are turned off in Settings)")
+            return _reject_new(db, order, closed_message(market))
         if not reducing and entry_ref is not None:
             need = required_cash(inst.instrument_type, side, entry_ref, quantity, inst.strike) + \
                 estimate_charges(product, side, q2(entry_ref * quantity), inst.instrument_type, inst.exchange)
