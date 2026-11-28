@@ -39,15 +39,15 @@ function LevelCard({ badge, badgeCls, title, hint, on, onToggle, children }: {
   badge: string; badgeCls: string; title: string; hint: string; on: boolean; onToggle: (v: boolean) => void; children: ReactNode;
 }) {
   return (
-    <div className="rounded-[20px] border border-line px-4 py-3.5 transition-all">
-      <div className="flex items-center gap-4">
-        <span className={`h-10 w-10 grid place-items-center rounded-xl text-[15px] lg:text-[16px] font-medium ${badgeCls}`}>{badge}</span>
-        <span className="text-[16px] lg:text-[17px]">{title}</span>
+    <div className="rounded-[20px] lg:rounded-2xl border border-line px-4 py-3.5 lg:px-3 lg:py-2 transition-all">
+      <div className="flex items-center gap-4 lg:gap-3">
+        <span className={`h-10 w-10 lg:h-8 lg:w-8 grid place-items-center rounded-xl lg:rounded-lg text-[15px] lg:text-[13px] font-medium ${badgeCls}`}>{badge}</span>
+        <span className="text-[16px] lg:text-[15px]">{title}</span>
         <span title={hint} className="text-ink"><Info size={19} strokeWidth={1.7} /></span>
         <div className="flex-1" />
         <Switch on={on} onChange={onToggle} label={title} />
       </div>
-      {on && <div className="mt-4 animate-fade">{children}</div>}
+      {on && <div className="mt-4 lg:mt-2.5 animate-fade">{children}</div>}
     </div>
   );
 }
@@ -157,30 +157,31 @@ export default function OrderPanel({ symbol, exchange, lotSize = 1, itype = "EQ"
   const blocked = !!pv && pv.errors.length > 0;
   const canPlace = !!accountId && !busy && Number(qty) > 0 && !blocked && (!needsLimit || Number(price) > 0) && (!needsTrigger || Number(trigger) > 0);
   const cash = pv?.required_funds && pv.entry_charges ? Number(pv.required_funds) - Number(pv.entry_charges) : null;
-  const label = "text-[16px] lg:text-[17px] text-[#555]";
+  const label = "text-[16px] lg:text-[14.5px] text-[#555]";
+  const seg = sheet ? "md" : "sm";
 
   return (
-    <div className={sheet ? "" : "card overflow-hidden"}>
-      <div className="px-5 pt-4 pb-6 space-y-6">
+    <div className={sheet ? "" : "card overflow-hidden lg:flex lg:flex-col lg:max-h-[calc(100vh-112px)]"}>
+      <div className="px-5 pt-4 pb-6 space-y-6 lg:px-4 lg:pt-3 lg:pb-4 lg:space-y-3.5 lg:flex-1 lg:min-h-0 lg:overflow-y-auto">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
-            <div className="text-[19px] lg:text-[22px] truncate">{displayName(symbol)}</div>
-            <div className="text-[16px] lg:text-[18px] mt-0.5 flex items-baseline gap-2">
+            <div className="text-[19px] lg:text-[18px] truncate">{displayName(symbol)}</div>
+            <div className="text-[16px] lg:text-[15px] mt-0.5 flex items-baseline gap-2">
               <span className="font-medium">{ltp ? Number(ltp).toFixed(2) : <span className="text-muted text-[14px] lg:text-[15px]">No price</span>}</span>
               {pct && <span className={pnlClass(pct)}>({Number(pct) > 0 ? "+" : ""}{Number(pct).toFixed(2)}%)</span>}
               <span className="text-muted text-[15px] lg:text-[16px]">{exchange}</span>
             </div>
           </div>
           <button type="button" onClick={() => setSide(buy ? "SELL" : "BUY")} aria-label={`Switch to ${buy ? "sell" : "buy"}`}
-                  className={`inline-flex items-center gap-1.5 rounded-full px-4 py-2 text-[16px] lg:text-[17px] press transition-colors ${buy ? "bg-buybg text-buy" : "bg-sellbg text-sell"}`}>
+                  className={`inline-flex items-center gap-1.5 rounded-full px-4 py-2 lg:px-3 lg:py-1.5 text-[16px] lg:text-[14.5px] press transition-colors ${buy ? "bg-buybg text-buy" : "bg-sellbg text-sell"}`}>
             {buy ? "Buy" : "Sell"}<ChevronsUpDown size={17} />
           </button>
         </div>
 
         <div className="flex items-center justify-between gap-2">
-          <Segmented label="Product" items={PRODUCTS[itype] as [string, string][]} value={product} onChange={setProduct} />
+          <Segmented size={seg} label="Product" items={PRODUCTS[itype] as [string, string][]} value={product} onChange={setProduct} />
           <button type="button" aria-label="Order details" aria-pressed={details} onClick={() => setDetails(!details)} title="Risk, reward and charges"
-                  className={`h-12 w-12 shrink-0 grid place-items-center rounded-full border transition-colors ${details ? "border-ink bg-soft" : "border-line"}`}>
+                  className={`h-12 w-12 lg:h-10 lg:w-10 shrink-0 grid place-items-center rounded-full border transition-colors ${details ? "border-ink bg-soft" : "border-line"}`}>
             <SlidersHorizontal size={19} strokeWidth={1.7} />
           </button>
         </div>
@@ -190,15 +191,15 @@ export default function OrderPanel({ symbol, exchange, lotSize = 1, itype = "EQ"
             <div className={label}>{lots ? "Lots" : "Quantity"}</div>
             {lots && <div className="text-[12px] lg:text-[13px] text-muted">1 lot = {lotSize} qty{Number(qty) > 0 ? ` · total ${Number(qty) * lotSize}` : ""}</div>}
           </div>
-          <div className="flex items-center rounded-full bg-panel2 px-1.5 py-1.5">
-            <button type="button" aria-label="Decrease quantity" className="h-11 w-11 grid place-items-center rounded-full active:bg-white text-[#555]" onClick={() => step(-1)}><Minus size={22} strokeWidth={1.6} /></button>
-            <input aria-label="Quantity" className="w-16 bg-transparent text-center text-[16.5px] lg:text-[19px] outline-none" type="number" min="1" step="1" inputMode="numeric"
+          <div className="flex items-center rounded-full bg-panel2 px-1.5 py-1.5 lg:py-1">
+            <button type="button" aria-label="Decrease quantity" className="h-11 w-11 lg:h-9 lg:w-9 grid place-items-center rounded-full active:bg-white text-[#555]" onClick={() => step(-1)}><Minus size={22} strokeWidth={1.6} /></button>
+            <input aria-label="Quantity" className="w-16 bg-transparent text-center text-[16.5px] lg:text-[16px] outline-none" type="number" min="1" step="1" inputMode="numeric"
                    value={qty} onChange={(e) => setQty(e.target.value)} />
-            <button type="button" aria-label="Increase quantity" className="h-11 w-11 grid place-items-center rounded-full active:bg-white text-[#555]" onClick={() => step(1)}><Plus size={22} strokeWidth={1.6} /></button>
+            <button type="button" aria-label="Increase quantity" className="h-11 w-11 lg:h-9 lg:w-9 grid place-items-center rounded-full active:bg-white text-[#555]" onClick={() => step(1)}><Plus size={22} strokeWidth={1.6} /></button>
           </div>
         </div>
         {pv?.suggested_quantity ? (
-          <button type="button" className="-mt-5 text-[12px] lg:text-[13px] text-muted underline underline-offset-2" title={`Risk ${inr(pv.max_risk_amount)} per trade`}
+          <button type="button" className="-mt-5 lg:-mt-2 text-[12px] lg:text-[13px] text-muted underline underline-offset-2" title={`Risk ${inr(pv.max_risk_amount)} per trade`}
                   onClick={() => setQty(String(pv.suggested_quantity! / lotSize))}>
             Size by risk: {pv.suggested_quantity / lotSize}{lots ? " lot(s)" : ""}
           </button>
@@ -206,21 +207,21 @@ export default function OrderPanel({ symbol, exchange, lotSize = 1, itype = "EQ"
 
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className={label}>Order type</div>
-          <Segmented tone="light" label="Order type" items={[["MARKET", "Market"], ["LIMIT", "Limit"], ["SL", "SL"], ["SL-M", "SL-M"]]} value={orderType}
+          <Segmented size={seg} tone="light" label="Order type" items={[["MARKET", "Market"], ["LIMIT", "Limit"], ["SL", "SL"], ["SL-M", "SL-M"]]} value={orderType}
                      onChange={(t) => { setOrderType(t); if (t !== "LIMIT") setPrice(""); setTrigger(""); }} />
         </div>
 
         {needsTrigger && (
           <div className="flex items-center justify-between gap-3 animate-fade">
             <div className={label}>Price <b className="font-medium text-ink">Trigger</b></div>
-            <input aria-label="Trigger price" className="input !w-[190px] !rounded-2xl text-right text-[17px] lg:text-[20px]" type="number" step="0.05" inputMode="decimal"
+            <input aria-label="Trigger price" className="input !w-[190px] lg:!w-[150px] !rounded-2xl lg:!py-2 text-right text-[17px] lg:text-[16px]" type="number" step="0.05" inputMode="decimal"
                    value={trigger} onChange={(e) => setTrigger(e.target.value)} />
           </div>
         )}
         {needsLimit && (
           <div className="flex items-center justify-between gap-3 animate-fade">
             <div className={label}>Price <b className="font-medium text-ink">Limit</b></div>
-            <input aria-label="Limit price" className="input !w-[190px] !rounded-2xl text-right text-[17px] lg:text-[20px]" type="number" step="0.05" inputMode="decimal"
+            <input aria-label="Limit price" className="input !w-[190px] lg:!w-[150px] !rounded-2xl lg:!py-2 text-right text-[17px] lg:text-[16px]" type="number" step="0.05" inputMode="decimal"
                    value={price} onChange={(e) => setPrice(e.target.value)} />
           </div>
         )}
@@ -233,23 +234,23 @@ export default function OrderPanel({ symbol, exchange, lotSize = 1, itype = "EQ"
         {!intraday && (
           <div className="flex items-center justify-between gap-3">
             <div className={label}>Validity</div>
-            <Segmented tone="light" label="Validity" items={[["DAY", "Day"], ["GTT", "GTT"]]} value={validity} onChange={setValidity} />
+            <Segmented size={seg} tone="light" label="Validity" items={[["DAY", "Day"], ["GTT", "GTT"]]} value={validity} onChange={setValidity} />
           </div>
         )}
 
         <LevelCard badge="SL" badgeCls="bg-sellbg text-sell" title="Stop Loss" on={slOn}
                    hint="Closes the position automatically if the price moves against you to this level."
                    onToggle={(v) => { setSlOn(v); if (!v) setSl(""); }}>
-          <input aria-label="Stop loss price" className="input text-right text-[16px] lg:text-[18px]" type="number" step="0.05" inputMode="decimal" placeholder="Stop loss price ₹" value={sl} onChange={(e) => setSl(e.target.value)} />
+          <input aria-label="Stop loss price" className="input lg:!py-2 text-right text-[16px] lg:text-[15px]" type="number" step="0.05" inputMode="decimal" placeholder="Stop loss price ₹" value={sl} onChange={(e) => setSl(e.target.value)} />
         </LevelCard>
         <LevelCard badge="TP" badgeCls="bg-buybg text-buy" title="Take Profit" on={tpOn}
                    hint="Closes the position automatically when the price reaches this target."
                    onToggle={(v) => { setTpOn(v); if (!v) setTarget(""); }}>
-          <input aria-label="Target price" className="input text-right text-[16px] lg:text-[18px]" type="number" step="0.05" inputMode="decimal" placeholder="Target price ₹" value={target} onChange={(e) => setTarget(e.target.value)} />
+          <input aria-label="Target price" className="input lg:!py-2 text-right text-[16px] lg:text-[15px]" type="number" step="0.05" inputMode="decimal" placeholder="Target price ₹" value={target} onChange={(e) => setTarget(e.target.value)} />
         </LevelCard>
 
         <label className="flex items-center justify-between gap-3"><span className={label}>Strategy</span>
-          <select className="h-12 rounded-full border border-line bg-white px-4 text-[15px] lg:text-[16px] min-w-[170px]" value={strategyId} onChange={(e) => setStrategyId(e.target.value)} aria-label="Strategy">
+          <select className="h-12 lg:h-10 rounded-full border border-line bg-white px-4 text-[15px] lg:text-[14.5px] min-w-[170px] lg:min-w-[150px]" value={strategyId} onChange={(e) => setStrategyId(e.target.value)} aria-label="Strategy">
             {strategies.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
           </select>
         </label>
@@ -275,7 +276,7 @@ export default function OrderPanel({ symbol, exchange, lotSize = 1, itype = "EQ"
       </div>
 
       {pv?.market && !pv.market.is_open && (
-        <div className={`px-6 py-4 text-[15px] lg:text-[16px] ${pv.after_hours_mode === "REJECT" && validity === "DAY" ? "bg-sellbg/60 text-sell" : "bg-peach/70 text-[#7a4a00]"}`}>
+        <div className={`px-6 py-4 lg:px-4 lg:py-2.5 text-[15px] lg:text-[13px] ${pv.after_hours_mode === "REJECT" && validity === "DAY" ? "bg-sellbg/60 text-sell" : "bg-peach/70 text-[#7a4a00]"}`}>
           <b className="font-medium">{pv.market.label}</b>{sessionHint(pv.market) ? ` · ${sessionHint(pv.market)} IST` : ""}.{" "}
           {pv.after_hours_mode === "REJECT" && validity === "DAY"
             ? "Orders can be placed only during market hours. Nothing will be bought and no money is deducted."
@@ -283,15 +284,15 @@ export default function OrderPanel({ symbol, exchange, lotSize = 1, itype = "EQ"
         </div>
       )}
       {closedMsg && <MarketClosedDialog market={pv?.market} message={closedMsg} onClose={() => setClosedMsg(null)} />}
-      <div className={`border-t border-line px-6 py-4 flex items-center justify-between gap-4 bg-white ${sheet ? "sticky bottom-0 pb-[calc(16px+env(safe-area-inset-bottom))]" : ""}`}>
-        <div className="text-[14px] lg:text-[15px] leading-6 text-[#555]">
+      <div className={`border-t border-line px-6 py-4 lg:px-4 lg:py-3 lg:shrink-0 flex items-center justify-between gap-4 bg-white ${sheet ? "sticky bottom-0 pb-[calc(16px+env(safe-area-inset-bottom))]" : ""}`}>
+        <div className="text-[14px] lg:text-[13px] leading-6 lg:leading-5 text-[#555]">
           <div>Est. balance: <span className="text-ink">{pv ? inr(pv.balance) : "₹0"}</span></div>
           {itype === "EQ" && product !== "INTRADAY"
             ? <div>Amount: <span className="text-ink">{pv?.order_value ? inr(pv.order_value) : "₹0"}</span></div>
             : <div title="Approximate fixed-percentage margin for F&O; full value for equity">Req margin: <span className="text-ink">{cash !== null ? inr(cash) : pv?.order_value ? inr(pv.order_value) : "₹0"}</span></div>}
           <div title="Estimate for the entry leg"><span className="underline underline-offset-2">Charges</span>: <span className="text-ink">{pv?.entry_charges ? inr(pv.entry_charges) : "₹0.00"}</span></div>
         </div>
-        <button className={`btn min-w-[150px] py-4 text-[16.5px] lg:text-[19px] text-white ${buy ? "bg-buy hover:bg-[#0f5c39]" : "bg-sell hover:bg-[#a82e27]"}`}
+        <button className={`btn min-w-[150px] lg:min-w-[120px] py-4 lg:py-3 text-[16.5px] lg:text-[17px] text-white ${buy ? "bg-buy hover:bg-[#0f5c39]" : "bg-sell hover:bg-[#a82e27]"}`}
                 disabled={!canPlace} onClick={place}>
           {busy ? "Placing…" : buy ? "Buy" : "Sell"}
         </button>

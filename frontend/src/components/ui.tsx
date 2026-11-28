@@ -1,3 +1,4 @@
+import { createPortal } from "react-dom";
 /** Shared building blocks of the SAHI-style UI: animated underline tabs, segmented controls, chips, bottom sheet, price flash, empty state. */
 import { Check, ChevronLeft, ChevronRight, Info } from "lucide-react";
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
@@ -193,8 +194,8 @@ export function Sheet({ open, onClose, children, label }: { open: boolean; onClo
     return () => { document.body.style.overflow = prev; window.removeEventListener("keydown", onKey); };
   }, [open, onClose]);
   if (!open) return null;
-  return (
-    <div className="fixed inset-0 z-50" role="dialog" aria-modal="true" aria-label={label}>
+  return createPortal(
+    <div className="fixed inset-0 z-[70]" role="dialog" aria-modal="true" aria-label={label}>
       <div className="absolute inset-0 bg-black/45 animate-backdrop" onClick={onClose} />
       <div className="absolute inset-x-0 bottom-0 lg:inset-0 lg:grid lg:place-items-center pointer-events-none">
         <div className="pointer-events-auto bg-white rounded-t-[28px] lg:rounded-[28px] shadow-sheet animate-sheet lg:animate-fade max-h-[92vh] lg:max-h-[88vh] w-full lg:w-[440px] flex flex-col"
@@ -208,7 +209,8 @@ export function Sheet({ open, onClose, children, label }: { open: boolean; onClo
           <div className="overflow-y-auto overscroll-contain">{children}</div>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 

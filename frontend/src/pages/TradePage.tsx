@@ -59,7 +59,20 @@ function OptionChain({ chain, selected, onPick }: { chain: Chain; selected: stri
   );
 }
 
+/** Desktop: the chart fills the screen height (header, title row and card padding take ~290 px); phones keep 420 px. */
+function useChartHeight(): number {
+  const calc = () => (typeof window !== "undefined" && window.innerWidth >= 1024 ? Math.max(440, Math.min(900, window.innerHeight - 290)) : 420);
+  const [h, setH] = useState(calc);
+  useEffect(() => {
+    const on = () => setH(calc());
+    window.addEventListener("resize", on);
+    return () => window.removeEventListener("resize", on);
+  }, []);
+  return h;
+}
+
 export default function TradePage() {
+  const chartH = useChartHeight();
   const [params] = useSearchParams();
   const symbol = params.get("symbol");
   const exchange = params.get("exchange") ?? "NSE";
@@ -225,11 +238,11 @@ export default function TradePage() {
 
       {fnoError && <div role="alert" className="mx-4 lg:mx-0 mt-2 text-[13px] lg:text-[14px] text-down">{fnoError}</div>}
 
-      <div className="lg:grid lg:grid-cols-[1fr_420px] lg:gap-6 lg:items-start lg:mt-5">
+      <div className="lg:grid lg:grid-cols-[1fr_360px] lg:gap-5 lg:items-start lg:mt-3">
         <div className="min-w-0 space-y-5">
           <div className="pt-3 lg:pt-0 lg:card lg:p-4">
-            {chartSymbol ? <ChartView key={chartSymbol + seg} symbol={chartSymbol} exchange={chartExchange} height={seg === "options" ? 300 : 420} lines={lines} />
-              : !fnoError && <div className="skeleton mx-4 lg:mx-0 h-[420px]" />}
+            {chartSymbol ? <ChartView key={chartSymbol + seg} symbol={chartSymbol} exchange={chartExchange} height={seg === "options" ? 300 : chartH} lines={lines} />
+              : !fnoError && <div className="skeleton mx-4 lg:mx-0" style={{ height: chartH }} />}
           </div>
 
           {/* future / option chain: the underlying stock or index, tap to go back to it */}
